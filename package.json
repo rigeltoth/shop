@@ -9,8 +9,7 @@
     "build": "tsc",
     "start:server": "node ./dist/index.js",
     "start:worker": "node ./dist/index-worker.js",
-    "start": "concurrently npm:start:*",
-    "migrate": "vendure migrate"
+    "start": "concurrently npm:start:*"
   },
   "dependencies": {
     "@vendure/admin-ui-plugin": "3.1.8",
