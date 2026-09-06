@@ -25,12 +25,13 @@ export const multivendorShippingEligibilityChecker = new ShippingEligibilityChec
             .innerJoinAndSelect('sm.channels', 'channel')
             .where('sm.id = :id', { id: method.id })
             .getOne();
-        const sellerChannels = (methodWithChannels?.channels ?? []).filter(
-            c => c.code !== DEFAULT_CHANNEL_CODE,
-        );
-        if (sellerChannels.length === 0) {
+        const allChannels = methodWithChannels?.channels ?? [];
+        if (allChannels.length === 0) {
             return false;
         }
+
+        const isInDefaultChannel = allChannels.some(c => c.code === DEFAULT_CHANNEL_CODE);
+        const sellerChannels = allChannels.filter(c => c.code !== DEFAULT_CHANNEL_CODE);
         const sellerChannelIds = new Set(sellerChannels.map(c => String(c.id)));
 
         const destinationCity = normalizeCity(order.shippingAddress?.city ?? '');
@@ -39,16 +40,27 @@ export const multivendorShippingEligibilityChecker = new ShippingEligibilityChec
         }
 
         const lines = order.lines ?? [];
+        if (lines.length === 0) {
+            return false;
+        }
+
         for (const line of lines) {
-            if (line.sellerChannelId && sellerChannelIds.has(String(line.sellerChannelId))) {
+            const sellerChannelId = line.sellerChannelId;
+            if (sellerChannelId && sellerChannelIds.has(String(sellerChannelId))) {
                 const originIsPopayan = await resolveSellerOriginIsPopayan(
                     connection,
                     ctx,
-                    line.sellerChannelId,
+                    sellerChannelId,
                 );
-                return originIsPopayan;
+                if (!originIsPopayan) {
+                    return false;
+                }
+            } else if (!sellerChannelId && isInDefaultChannel) {
+                continue;
+            } else {
+                return false;
             }
         }
-        return false;
+        return true;
     },
 });

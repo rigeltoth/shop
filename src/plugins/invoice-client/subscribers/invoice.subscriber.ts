@@ -74,8 +74,8 @@ export class InvoiceSubscriber implements OnApplicationBootstrap {
 
       Logger.info(`Checking if invoice exists for order ${order.code}...`, loggerCtx);
       const existing = await this.invoiceClientService.getInvoiceByOrderCode(order.code);
-      if (existing) {
-        Logger.info(`Invoice already exists for order ${order.code}`, loggerCtx);
+      if (existing?.status === 'issued') {
+        Logger.info(`Invoice already issued for order ${order.code}`, loggerCtx);
         return;
       }
 
@@ -135,20 +135,49 @@ export class InvoiceSubscriber implements OnApplicationBootstrap {
   ): Promise<void> {
     const ds = this.connection.rawConnection;
     const orderMeta = ds.getMetadata(Order);
-    const invoiceErrorColumn = orderMeta.columns.find(
-      (c) => c.propertyName === 'invoiceLastError' && c.embeddedMetadata?.propertyName === 'customFields',
-    );
+    const findColumn = (propertyName: string) =>
+      orderMeta.columns.find(
+        (c) =>
+          c.propertyName === propertyName && c.embeddedMetadata?.propertyName === 'customFields',
+      );
+
+    const invoiceErrorColumn = findColumn('invoiceLastError');
     if (!invoiceErrorColumn) {
       Logger.warn('Order.customFields.invoiceLastError column not found; invoice error not persisted.', loggerCtx);
       return;
     }
+
+    const invoiceFailedAtColumn = findColumn('invoiceLastFailedAt');
     const table = orderMeta.tablePath
       .split('.')
       .map((part) => ds.driver.escape(part))
       .join('.');
-    await ds.query(
-      `UPDATE ${table} SET ${ds.driver.escape(invoiceErrorColumn.databaseName)} = $1 WHERE ${ds.driver.escape(orderMeta.primaryColumns[0].databaseName)} = $2`,
-      [error, orderId],
-    );
+    const idCol = ds.driver.escape(orderMeta.primaryColumns[0].databaseName);
+    const errCol = ds.driver.escape(invoiceErrorColumn.databaseName);
+
+    if (error && invoiceFailedAtColumn) {
+      const failedAtCol = ds.driver.escape(invoiceFailedAtColumn.databaseName);
+      await ds.query(
+        `UPDATE ${table} SET ${errCol} = $1, ${failedAtCol} = $2 WHERE ${idCol} = $3`,
+        [error, new Date(), orderId],
+      );
+      return;
+    }
+
+    if (error) {
+      await ds.query(`UPDATE ${table} SET ${errCol} = $1 WHERE ${idCol} = $2`, [error, orderId]);
+      return;
+    }
+
+    if (invoiceFailedAtColumn) {
+      const failedAtCol = ds.driver.escape(invoiceFailedAtColumn.databaseName);
+      await ds.query(
+        `UPDATE ${table} SET ${errCol} = NULL, ${failedAtCol} = NULL WHERE ${idCol} = $1`,
+        [orderId],
+      );
+      return;
+    }
+
+    await ds.query(`UPDATE ${table} SET ${errCol} = NULL WHERE ${idCol} = $1`, [orderId]);
   }
 }
