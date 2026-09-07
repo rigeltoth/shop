@@ -69,14 +69,22 @@ export class InvoiceFailureQueryService {
 
     const orders = await qb.take(take).skip(skip).getMany();
 
-    const items: InvoiceCreationFailureRow[] = orders.map((o) => ({
-      orderId: String(o.id),
-      orderCode: o.code,
-      error: humanizeInvoiceEmissionError(
-        String((o.customFields as { invoiceLastError?: string }).invoiceLastError ?? ''),
-      ),
-      failedAt: o.updatedAt,
-    }));
+    const items: InvoiceCreationFailureRow[] = orders.map((o) => {
+      const cf = o.customFields as { invoiceLastError?: string; invoiceLastFailedAt?: Date | string };
+      const failedAtRaw = cf.invoiceLastFailedAt;
+      const failedAt =
+        failedAtRaw != null && failedAtRaw !== ''
+          ? failedAtRaw instanceof Date
+            ? failedAtRaw
+            : new Date(failedAtRaw)
+          : o.updatedAt;
+      return {
+        orderId: String(o.id),
+        orderCode: o.code,
+        error: humanizeInvoiceEmissionError(String(cf.invoiceLastError ?? '')),
+        failedAt,
+      };
+    });
 
     return { items, total };
   }
