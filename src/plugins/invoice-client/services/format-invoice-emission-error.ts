@@ -113,6 +113,21 @@ export function humanizeInvoiceEmissionError(raw: string): string {
     );
   }
 
+  if (/resoluci[oó]n de facturaci[oó]n activa/i.test(text)) {
+    return (
+      'Matias no encontró una resolución DIAN activa para el prefijo y número configurados en «Matias por tienda». ' +
+      'Revisa en el panel sandbox de Matias que la resolución esté vigente para la fecha de hoy, que el prefijo (ej. FEV) ' +
+      'y el número de resolución coincidan exactamente con los de esa compañía (Company ID), y que no haya vencido ' +
+      '(en sandbox las resoluciones de prueba suelen tener vigencia corta).'
+    );
+  }
+
+  if (/fecha\s*\([^)]+\)\s*del documento debe estar entre/i.test(text)) {
+    return (
+      'Matias rechazó la factura porque la fecha del documento no coincide con el día de emisión en Colombia. '
+    );
+  }
+
   let cleaned = text
     .replace(/^Failed to create invoice in Matias:\s*/i, 'Matias rechazó la factura: ')
     .replace(/^Failed to create invoice:\s*/i, 'No se pudo crear la factura: ')

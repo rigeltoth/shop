@@ -25,6 +25,7 @@ import { useMemo, useState } from 'react';
 import { AlertCircle, Info, Mail, RefreshCw, Search } from 'lucide-react';
 import { optionalPublicGraphQlDetail, userFacingDashboardError } from './format-graphql-error';
 import { humanizeInvoiceEmissionError } from '../services/format-invoice-emission-error';
+import { formatColombiaDateTime } from './format-colombia-datetime';
 import { InvoiceQuotaStatusCard } from './invoice-quota-status-card';
 import { useCurrentInvoiceQuotaStatus } from './use-current-invoice-quota-status';
 
@@ -475,7 +476,7 @@ export function InvoicesPage() {
                                                 <TableRow key={f.orderId}>
                                                     <TableCell className="font-mono">{f.orderCode}</TableCell>
                                                     <TableCell className="whitespace-nowrap text-sm">
-                                                        {new Date(f.failedAt).toLocaleString('es-CO')}
+                                                        {formatColombiaDateTime(f.failedAt)}
                                                     </TableCell>
                                                     <TableCell className="max-w-xl text-sm text-destructive">
                                                         {humanizeInvoiceEmissionError(f.error)}
@@ -745,7 +746,7 @@ export function InvoicesPage() {
                                                                 {row.total} {row.currencyCode}
                                                             </TableCell>
                                                             <TableCell className="whitespace-nowrap text-sm">
-                                                                {new Date(row.createdAt).toLocaleString('es-CO')}
+                                                                {formatColombiaDateTime(row.createdAt)}
                                                             </TableCell>
                                                             <TableCell>
                                                                 {row.pdfUrl ? (

@@ -233,10 +233,6 @@ export class InvoiceClientService {
         payments,
       };
 
-      this.logger.log(
-        `Sending POST ${this.options.invoiceServiceUrl.replace(/\/+$/, '')}/invoices for order ${order.code}`,
-      );
-
       const trimmedCompanyId = config.matiasCompanyId?.trim();
       if (!trimmedCompanyId) {
         throw new Error(
@@ -248,6 +244,12 @@ export class InvoiceClientService {
           'Falta prefijo o número de resolución Matias de la tienda. Configúralo en Ventas → Matias por tienda.',
         );
       }
+
+      this.logger.log(
+        `Sending POST ${this.options.invoiceServiceUrl.replace(/\/+$/, '')}/invoices for order ${order.code} ` +
+          `(prefix=${config.prefix}, resolution=${config.resolutionNumber}, company=${trimmedCompanyId})`,
+      );
+
       const headers = { [MATIAS_COMPANY_ID_HEADER]: trimmedCompanyId };
       const response = await this.microHttp.axios.post<InvoiceResponse>('/invoices', request, { headers });
       if (!response.data.success) {

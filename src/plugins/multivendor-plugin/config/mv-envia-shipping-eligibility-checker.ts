@@ -55,10 +55,13 @@ export const enviaShippingEligibilityChecker = new ShippingEligibilityChecker({
                     ctx,
                     sellerChannelId,
                 );
-                return !originIsPopayan || !destinationIsPopayan;
-            }
-            if (!sellerChannelId && isInDefaultChannel) {
-                return !destinationIsPopayan;
+                if (!originIsPopayan || !destinationIsPopayan) {
+                    return true;
+                }
+            } else if (!sellerChannelId && isInDefaultChannel) {
+                if (!destinationIsPopayan) {
+                    return true;
+                }
             }
         }
         return false;

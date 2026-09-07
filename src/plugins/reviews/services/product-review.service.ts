@@ -7,6 +7,8 @@ import {
     TransactionalConnection,
 } from '@vendure/core';
 
+import { ProductReview } from '../entities/product-review.entity';
+
 @Injectable()
 export class ProductReviewService {
     constructor(private connection: TransactionalConnection) {}
@@ -104,10 +106,6 @@ export class ProductReviewService {
         customerId: ID,
         productId: ID,
     ): Promise<boolean> {
-        const ProductReview = await import('../entities/product-review.entity.js').then(
-            m => m.ProductReview,
-        );
-
         const count = await this.connection.getRepository(ctx, ProductReview).count({
             where: {
                 author: { id: customerId },
