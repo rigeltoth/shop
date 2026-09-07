@@ -86,10 +86,10 @@ export function HomeHeroWidget() {
                     <img src={avatarUrl} alt="SimetrIA" className="h-9 w-9 rounded-full object-contain" />
                 </div>
                 <h2 className="text-xl font-bold text-center text-white dark:text-foreground">
-                    ¡Te damos la bienvenida a Ecommer!
+                    ¡Hola! Soy SimetrIA
                 </h2>
                 <p className="mt-1 text-sm text-white/70 dark:text-muted-foreground text-center">
-                    ¿En qué podemos ayudarte hoy?
+                    Tu asistente de Ecommer
                 </p>
                 <div className="mt-4 flex w-full max-w-lg items-center gap-2">
                     <input

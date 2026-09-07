@@ -1000,7 +1000,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/vdb/components/ui/too
 
     useEffect(() => {
         document.body.classList.add('hide-description-images');
-        return () => document.body.classList.remove('hide-description-images');
+        document.body.classList.add('product-detail-sticky');
+        return () => {
+            document.body.classList.remove('hide-description-images');
+            document.body.classList.remove('product-detail-sticky');
+        };
     }, []);`,
                     );
                 }
@@ -1264,24 +1268,22 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/vdb/components/ui/too
                         )}
                     />
                 </PageBlock>`,
-                        `                <PageBlock column="side" blockId="facet-values" title={<Trans>Facet Values</Trans>}>
-                    <div className="relative">
-                        {creatingNewEntity && !entity?.id && (
-                            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm">
-                                <p className="px-4 text-center text-sm text-muted-foreground">
-                                    Guarda el producto primero para poder asignar facetas
-                                </p>
-                            </div>
-                        )}
-                        <div className={creatingNewEntity && !entity?.id ? 'pointer-events-none blur-sm' : ''}>
-                            <FormFieldWrapper
-                                control={form.control}
-                                name="facetValueIds"
-                                render={({ field }) => (
-                                    <AssignedFacetValues facetValues={entity?.facetValues ?? []} {...field} />
-                                )}
-                            />
+                        `                <PageBlock column="side" blockId="facet-values" title={<Trans>Facet Values</Trans>} className="relative">
+                    {creatingNewEntity && !entity?.id && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/80 backdrop-blur-sm">
+                            <p className="px-4 text-center text-sm text-muted-foreground">
+                                Guarda el producto primero para poder asignar facetas
+                            </p>
                         </div>
+                    )}
+                    <div className={creatingNewEntity && !entity?.id ? 'pointer-events-none blur-sm' : ''}>
+                        <FormFieldWrapper
+                            control={form.control}
+                            name="facetValueIds"
+                            render={({ field }) => (
+                                <AssignedFacetValues facetValues={entity?.facetValues ?? []} {...field} />
+                            )}
+                        />
                     </div>
                 </PageBlock>`,
                     );
@@ -2271,6 +2273,16 @@ export default defineConfig({
                 flex-direction: column;
                 overflow-y: auto;
                 max-height: 100vh;
+            }
+
+            /* Product detail header (título + action bar) sticky */
+            body.product-detail-sticky form.space-y-4 > div.flex.items-center.justify-between.gap-2 {
+                position: sticky;
+                top: 4.5rem;
+                z-index: 90;
+                background: var(--background, #fff);
+                padding-block: 0.5rem;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
             }
 
             /* --- Vendure Dashboard: Fix superposición de labels en gráficos métricas home --- */

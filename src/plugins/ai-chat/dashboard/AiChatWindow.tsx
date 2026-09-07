@@ -2,12 +2,17 @@ import { useChat } from './useChat';
 import './chat.css';
 
 import avatarUrl from './simteria-avatar.png';
+import { X } from 'lucide-react';
 
 function formatTime(date: Date): string {
     return date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
 }
 
-export function AiChatWindow() {
+interface AiChatWindowProps {
+    onClose?: () => void;
+}
+
+export function AiChatWindow({ onClose }: AiChatWindowProps) {
     const chat = useChat();
 
     return (
@@ -25,6 +30,16 @@ export function AiChatWindow() {
                         En línea
                     </div>
                 </div>
+                {onClose && (
+                    <button
+                        className="ac-chat-close"
+                        onClick={onClose}
+                        aria-label="Cerrar chat"
+                        title="Cerrar chat"
+                    >
+                        <X style={{ width: 18, height: 18 }} />
+                    </button>
+                )}
             </div>
 
             {/* MENSAJES */}
