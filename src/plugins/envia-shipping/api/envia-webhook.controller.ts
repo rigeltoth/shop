@@ -39,6 +39,11 @@ interface EnviaTrackingWebhook {
     type?: string;
     created_at?: string;
     data?: EnviaTrackingWebhookData;
+    trackingNumber?: string;
+    tracking_number?: string;
+    status?: string;
+    carrierName?: string;
+    carrier_name?: string;
 }
 
 @Controller('api/envia')
@@ -58,11 +63,17 @@ export class EnviaWebhookController {
     ) {
         this.validateSignature(payload, req, headers);
 
-        const trackingNumber = payload?.data?.tracking_number;
-        const status = payload?.data?.status;
+        const trackingNumber =
+            payload?.data?.tracking_number ??
+            payload?.trackingNumber ??
+            payload?.tracking_number;
+        const status = payload?.data?.status ?? payload?.status;
 
         if (!trackingNumber || !status) {
-            Logger.warn('Payload de Envía sin tracking_number o status; ignorando', loggerCtx);
+            Logger.warn(
+                `Payload de Envía sin tracking_number o status; ignorando. Body: ${this.extractRawBody(req, payload)}`,
+                loggerCtx,
+            );
             return { received: true };
         }
 
