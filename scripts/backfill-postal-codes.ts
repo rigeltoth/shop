@@ -96,8 +96,6 @@ async function main() {
     const pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
     try {
-        console.log('Backfill de códigos postales — iniciando...\n');
-
         const { rows: coordRows } = await pool.query<AdminRow>(`
             SELECT
                 id,
@@ -203,21 +201,16 @@ async function main() {
               AND ("customFieldsStorepickupaddress" IS NULL OR "customFieldsStorepickupaddress" = '')
         `);
 
-        console.log(`\n--- Resumen ---`);
         console.log(`Reverse geocode (lat/lng): ${coordRows.length} procesados, ${coordUpdated} actualizados, ${coordFailed} fallidos`);
         console.log(`Forward geocode (dirección): ${remainingRows.length} procesados, ${addressUpdated} actualizados, ${addressFailed} fallidos`);
 
         if (noLocationRows.length > 0) {
-            console.log(`\nVendedores sin ningún dato de ubicación (${noLocationRows.length}):`);
+            console.log(`Vendedores sin ningún dato de ubicación (${noLocationRows.length}):`);
             for (const row of noLocationRows) {
                 const name = `${row.firstName} ${row.lastName}`.trim() || '(sin nombre)';
                 console.log(`  - ${name} (${row.emailAddress || 'sin email'})`);
             }
-        } else {
-            console.log(`\nTodos los vendedores tienen datos de ubicación.`);
         }
-
-        console.log('');
     } finally {
         await pool.end();
     }

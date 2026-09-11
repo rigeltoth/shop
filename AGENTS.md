@@ -147,7 +147,7 @@ User clicks "Iniciar sesión con Google"
 
 ```
 User fills registration form (shop name + Google Maps pickup autocomplete)
-  → SellerRegistrationForm sends mutation registerSellerWithGoogle(input)
+  → SellerRegistrationWizard sends mutation registerSellerWithGoogle(input)
   → LoginResolver → GoogleAuthService → verify Google token
   → SellerOnboardingService.registerSeller(ctx, input)
       ├─ Validate pickup address
@@ -166,6 +166,38 @@ User fills registration form (shop name + Google Maps pickup autocomplete)
   → Auto-login via handleGoogleLogin(token, true) → same authenticate() flow
 ```
 
+### Registro Tradicional (Double Opt-In / staged)
+
+Flujo con correo + contraseña. **NO se crea cuenta hasta verificar** el correo:
+
+```
+1. registerSellerWithEmail(input) [Public]
+   → SellerVerificationService.createPending(email, input)
+       ├─ Valida: email formato, password ≥ 8, shopName blacklist, pickup coords
+       ├─ Rechaza si ya existe cuenta verificada con ese correo ("Inicia sesión")
+       ├─ Recicla cuentas legacy SIN verificar (rol -admin + verified=false + registro PENDING)
+       ├─ Upsert en tabla seller_email_verification (payload + passwordHash bcrypt + token 32hex + código 6 dígitos, expiración 24h)
+       └─ Envía correo (enlace + código) → NADA de Seller/Channel/Role/Admin se crea aún
+
+2. Verificación (página pública /dashboard/verify-email):
+   - Link: verifySellerEmail({ token })  → verifyByToken()
+   - Código: verifySellerEmail({ code }) → verifyByCode()  (sin pedir el correo)
+   → createSellerAccount(record):
+       ├─ SellerOnboardingService.registerSeller(ctx, payload, { preHashedPassword })  (crea todo)
+       ├─ Marca registro VERIFIED + administratorId
+       └─ AUTO-LOGIN: SessionService.createNewAuthenticatedSession + setSessionToken + channelToken
+
+3. Login:
+   - Nativo → SellerNativeAdminAuthenticationStrategy: si user.verified=false + rol -admin → bloquea con mensaje
+   - Google → autoVerifyForUser() si hay cuenta legacy pendiente (Google ya verificó el correo)
+
+4. Si nunca se verifica → no existe cuenta → el email queda libre (re-registrable)
+```
+
+**Seguridad:** password solo como hash bcrypt en el registro pendiente; token/código con sha256; expiración 24h + purga diaria de pendientes; superadmin siempre intocable; resend con throttle 60s; mensajes genéricos (sin enumeración de correos).
+
+**Script de mantenimiento:** `scripts/delete-unverified-seller.ts` (`--list` / `--email=` / `--adminId=`, confirmación o `--yes`, solo sellers sin verificar con registro PENDING, superadmin intocable, TypeORM sin SQL crudo).
+
 ### Seller Admin Permissions (`SELLER_ADMIN_PERMISSIONS` in `constants.ts`)
 
 42 permissions covering: Read/Create/Update/Delete for Order, Customer, PaymentMethod, ShippingMethod, Promotion, Asset, Tag, StockLocation, Product, Facet, Collection + UpdateAdministrator + ReadChannel.
@@ -175,23 +207,40 @@ User fills registration form (shop name + Google Maps pickup autocomplete)
 ### Key Services
 
 **`SellerOnboardingService`** — Core service with these public methods:
-- `registerSeller(ctx, input)` → Creates full seller infrastructure
+- `registerSeller(ctx, input, options?)` → Creates full seller infrastructure (options: `password` | `preHashedPassword`)
 - `syncSellerAdminPermissions(ctx, roleId)` → Update single role to SELLER_ADMIN_PERMISSIONS
 - `syncAllSellerRolesForUser(ctx, user)` → Called during authenticate(), updates all -admin roles for a user
 - `syncAllSellerAdminPermissionsForChannel(ctx, channelToken)` → Bulk update all seller roles in a channel
 - `createSellerChannelRoleAdmin()` (private) → Creates Seller/Channel/Role/Administrator
 
+**`SellerVerificationService`** — Flujo diferido (Double Opt-In). Métodos públicos:
+- `createPending(email, input)` → Guarda el registro pendiente (payload + passwordHash) y envía el correo
+- `verifyByToken(token)` / `verifyByCode(code)` → Verifica, crea la cuenta y devuelve `{ verified, sessionToken, channelToken }`
+- `resend(email)` → Reenvía (throttle 60s)
+- `recycleUnverifiedAccountByEmail(email)` → Recicla cuenta legacy sin verificar (guardas: rol `-admin`, `verified=false`, NO superadmin, registro PENDING)
+- `purgeExpiredPending()` → Job diario de limpieza de pendientes expirados
+- `autoVerifyForUser(user)` → Google auto-verifica sellers legacy
+- `deletePendingByEmail(email)` → Limpia pendiente al registrar por Google
+
+**`SellerVerificationEmailService`** — Resend directo (sin worker/JobQueue), Handlebars + MJML, template `verify-seller-email.hbs`. Retorna `boolean` según el resultado de Resend.
+
+**`SellerNativeAdminAuthenticationStrategy`** — Estrategia nativa de Admin API que **bloquea el login** de sellers con `verified=false` (rol `-admin`) devolviendo un mensaje claro (composición sobre `NativeAuthenticationStrategy`).
+
 **`GoogleAdminAuthenticationStrategy`** — Implements `AuthenticationStrategy<GoogleAuthData>`:
-- `authenticate(ctx, data)` → Resolves email, queries user, syncs seller roles, returns User
+- `authenticate(ctx, data)` → Resolves email, queries user, auto-verifies pending legacy sellers, syncs seller roles, returns User
 - Supports both ID tokens (verifyIdToken) and access tokens (tokeninfo + userinfo fallback)
 
 ### Dashboard Components
 
 | Component | Path | Purpose |
 |---|---|---|
-| `App.tsx` | `dashboard/App.tsx` | Main auth UI: home/login/register views, handles Google login redirect |
+| `AuthCard.tsx` | `dashboard/marketing/AuthCard.tsx` | Main auth UI: home/login/register views, handles Google login redirect, renders wizard en registro |
+| `SellerRegistrationWizard.tsx` | `dashboard/components/SellerRegistrationWizard.tsx` | Wizard de registro 3 pasos: método (Google/correo) → datos de acceso → tienda + confirmar. Google = 2 pasos |
+| `PickupAddressInput.tsx` | `dashboard/components/PickupAddressInput.tsx` | Dirección de recogida con Google Maps (autocompletar + picker), reutilizable |
+| `VerifySellerEmailPage.tsx` | `dashboard/components/VerifySellerEmailPage.tsx` | Página pública `/dashboard/verify-email`: verifica por link o código (sin pedir correo), auto-login y redirect al dashboard |
+| `email-validation.ts` | `dashboard/email-validation.ts` | Validación de email en tiempo real + sugerencia de dominios mal escritos |
 | `GoogleLoginButton.tsx` | `dashboard/components/GoogleLoginButton.tsx` | OAuth2 popup button |
-| `SellerRegistrationForm.tsx` | `dashboard/components/SellerRegistrationForm.tsx` | Registration form with Google Maps Places |
+| `GoogleMapPicker.tsx` | `dashboard/components/GoogleMapPicker.tsx` | Modal selector de ubicación en el mapa |
 | `LoginLogo.tsx` | `dashboard/components/LoginLogo.tsx` | Logo (dark/light) |
 | `DeleteAccountSection.tsx` | `dashboard/components/DeleteAccountSection.tsx` | Danger zone on profile page. Hidden from superadmin via `useIsSuperAdmin()` hook |
 
@@ -204,6 +253,9 @@ extend type Query {
 
 extend type Mutation {
     registerSellerWithGoogle(input: RegisterSellerWithGoogleInput!): GoogleSellerRegistrationResult!
+    registerSellerWithEmail(input: RegisterSellerWithEmailInput!): SellerRegistrationResult!
+    verifySellerEmail(input: VerifySellerEmailInput!): VerifySellerEmailResult!   # token O código
+    resendSellerVerificationEmail(email: String!): VerifySellerEmailResult!
     deleteSellerAccount: DeleteSellerAccountResult!
 }
 ```
@@ -216,6 +268,25 @@ extend type Mutation {
 3. Cancel subscription
 4. Anonymize Seller, User, Administrator (rename to `Deleted_<id>`)
 5. Rename Channel (append `-deleted`)
+
+**Nota:** al eliminar la cuenta también se borran los registros `seller_email_verification` del admin, dejando el email libre para re-registrar.
+
+### Entidad `seller_email_verification`
+
+Tabla del registro diferido (Double Opt-In). **Nombres de columna snake_case explícitos** (los `@Column({ name: ... })` de la entidad NO coinciden con el nombre de la propiedad; migraciones y QueryBuilder deben usar los mismos nombres):
+
+| columna | tipo | nota |
+|---|---|---|
+| `id` | int PK | |
+| `administrator_id` | int nullable | NULL mientras el registro está pendiente; se setea al verificar |
+| `email` | varchar | correo del pending |
+| `token_hash` | varchar | sha256 del token del enlace |
+| `code_hash` | varchar | sha256 del código de 6 dígitos |
+| `token_expires_at` | timestamp | now + 24h |
+| `status` | enum | `PENDING_VERIFICATION` / `VERIFIED` |
+| `last_sent_at` | timestamp | throttle de reenvío (60s) |
+| `shop_name`, `first_name`, `last_name`, `password_hash`, `pickup_address`, `pickup_latitude`, `pickup_longitude`, `pickup_neighborhood`, `pickup_postal_code`, `pickup_google_place_id` | — | payload del registro pendiente (password = hash bcrypt) |
+| `createdAt`, `updatedAt` | timestamp | camelCase (default) |
 
 ---
 
@@ -842,6 +913,25 @@ Siempre colocar TODOS los `useState` y `useEffect` al inicio del componente, ANT
 
 El header HTTP que envía el dashboard es **`vendure-token`** (configurado por `channelTokenKey` en Vendure), NO `vendure-selected-channel-token` que es solo el key de **localStorage**. Si necesitas leer el channel token directo del request raw, usa `ctx.req?.headers?.['vendure-token']`. Ver `AdminPayoutResolver.resolveSeller()` como ejemplo de esta estrategia cuando `ctx.activeUserId` no está disponible con auth custom.
 
+### 20. mjml v5 devuelve un Promise
+
+`mjml(input)` en v5 retorna **`Promise<{ html, errors, json }>`**, NO un objeto síncrono. `const { html } = mjml(...)` (sin `await`) da `html: undefined` → Resend responde `422 validation_error: Missing html or text field` y el email NUNCA se envía (aunque se loguee "enviado"). **Siempre `await mjml(...)`** y valida `html` no vacío. Aplica a `SellerVerificationEmailService`, `BillingEmailService` y `EnviaEmailService` (verificados los 3).
+
+### 21. TypeORM `DELETE` con alias falla
+
+`createQueryBuilder('alias').delete().where('alias.col = ...')` genera `DELETE FROM tabla WHERE alias.col = ...` sin alias en el FROM → `missing FROM-clause entry for table "alias"`. Usar criterio por propiedades: `repo.delete({ status, tokenExpiresAt: LessThan(now) })` (con `LessThan`/`MoreThan` de `typeorm`). Sin SQL crudo.
+
+### 22. Nombres de columna de `seller_email_verification`
+
+La entidad usa `@Column({ name: '...' })` con nombres **snake_case explícitos** (`token_hash`, `code_hash`, `token_expires_at`, `last_sent_at`, `administrator_id`, `shop_name`, …). `createdAt`/`updatedAt` quedan camelCase (default). Las migraciones y cualquier QueryBuilder deben usar esos nombres reales; con QueryBuilder usa `alias.property` (TypeORM mapea la propiedad a la columna). No referencies `"tokenExpiresAt"` entre comillas.
+
+### 23. Auto-login tras verificar el correo
+
+Para iniciar sesión desde una mutación `Public` (ej. `verifySellerEmail`):
+1. `const session = await sessionService.createNewAuthenticatedSession(ctx, user, NATIVE_AUTH_STRATEGY_NAME)` → devuelve `session.token`.
+2. En el resolver, inyecta `@Context('req')`/`@Context('res')` (igual que el `authenticate` de Vendure) y llama `setSessionToken({ sessionToken, rememberMe: false, authOptions, req, res })`.
+3. Devuelve `channelToken` en la respuesta para que el frontend guarde `vendure-selected-channel-token` (RAW, sin JSON.stringify).
+
 ---
 
 ---
@@ -918,3 +1008,6 @@ Expone solo: `platform`, `username`, `dmLink`, `profileUrl`, `displayName`, `inP
 | 2026-08-18 | Wompi subscription: create-time limits via ProductLimitResolver wrapper (createProduct/createProductVariants + guards), counts without hidden filter, guards in Spanish, REMOVE all auto-hide logic (ProductLimitEnforcementService deleted, 4 call-sites cleaned), impago notice pageBlock on profile, GRACE_PERIOD email (grace-period.hbs + sendGracePeriodNotice in updateSubscriptionStatus), fix stale email texts | — |
 | 2026-08-18 | Dashboard Manage Variants: productDetailWithVariantsDocument extended with featuredAsset+stockLevels, variants table gets Imagen/SKU/Stock columns (VendureImage preset tiny + StockLevelLabel) via vite.config.mts | — |
 | 2026-08-18 | AGENTS.md: WompiSubscriptionPlugin deep dive update (no auto-hide, ProductLimitResolver, SubscriptionAlertSection, grace-period email), session log | — |
+| 2026-09-05 | Registro diferido (Double Opt-In): entidad `seller_email_verification` (staged), registerSellerWithEmail → createPending, verifyByToken/verifyByCode crean cuenta + auto-login (SessionService + setSessionToken + channelToken), SellerNativeAdminAuthenticationStrategy bloquea login sin verificar, recycle de cuentas legacy (guardas superadmin/PENDING), script delete-unverified-seller.ts (TypeORM, --list), fix mjml v5 (await) en 3 servicios de email, re-registro tras eliminar cuenta, purga diaria de pendientes | `a542728`, `e4a284a` |
+| 2026-09-05 | Wizard de registro 3 pasos reordenado (método → datos de acceso → tienda+confirmar), progreso dinámico (Google 2 pasos), VerifySellerEmailPage sin pedir correo para el código, email-validation en tiempo real, copy suave en paso 3 | `e4a284a` |
+| 2026-09-05 | AGENTS.md: LoginPlugin deep dive (registro tradicional staged, servicios de verificación, wizard, entidad seller_email_verification), gotchas #20-23 (mjml Promise, DELETE alias, snake_case columns, auto-login), session log | — |

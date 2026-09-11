@@ -50,7 +50,7 @@ for (const { file, replacements } of PATCHES) {
     try {
         content = readFileSync(file, 'utf-8');
     } catch {
-        console.log(`[patch-option-value-input] skipping missing file: ${file}`);
+        console.warn(`skipping missing file: ${file}`);
         continue;
     }
     let changed = false;
@@ -67,7 +67,7 @@ for (const { file, replacements } of PATCHES) {
     }
     if (changed) {
         writeFileSync(file, content);
-        console.log(`[patch-option-value-input] patched ${file}`);
+        console.log(`patched ${file}`);
     }
 }
 console.log(`[patch-option-value-input] done (${applied} applied, ${skipped} already present)`);

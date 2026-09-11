@@ -162,10 +162,6 @@ async function listUnverifiedSellers(ds: DataSource): Promise<void> {
             (row.pending ? '' : '  [SIN registro PENDING: no reciclable]'),
         );
     }
-    console.log(
-        '\nSolo los que tienen registro PENDING de verificación pueden eliminarse ' +
-        '(los vendedores verificados nunca se tocan).',
-    );
 }
 
 async function deleteTarget(ds: DataSource, target: ResolvedTarget, yes: boolean): Promise<void> {
@@ -187,14 +183,9 @@ async function deleteTarget(ds: DataSource, target: ResolvedTarget, yes: boolean
         process.exit(1);
     }
 
-    console.log(`\nCuenta encontrada:`);
-    console.log(`  Administrator id : ${adminId}`);
-    console.log(`  Email            : ${target.user.identifier}`);
-    console.log(`  Rol              : ${target.role.code}`);
-    console.log(`  user.verified    : ${target.user.verified}`);
-    console.log(`  Channel          : ${target.channel?.code ?? '-'} (${target.channel?.id ?? '-'})`);
-    console.log(`  Seller           : ${target.seller?.name ?? '-'} (${target.seller?.id ?? '-'})`);
-    console.log(`  Registro PENDING : sí`);
+    console.log(`Cuenta encontrada: Administrator id=${adminId}, email=${target.user.identifier}`);
+    console.log(`Rol=${target.role.code}, user.verified=${target.user.verified}, Registro PENDING: sí`);
+    console.log(`Channel=${target.channel?.code ?? '-'} (${target.channel?.id ?? '-'}), Seller=${target.seller?.name ?? '-'} (${target.seller?.id ?? '-'})`);
 
     if (!yes) {
         const ok = await new Promise<boolean>(resolve => {
@@ -280,14 +271,13 @@ async function deleteTarget(ds: DataSource, target: ResolvedTarget, yes: boolean
         } as any);
     });
 
-    console.log(`\n--- Resumen ---`);
-    console.log(`Suscripción cancelada      : ${adminId}`);
-    console.log(`Registros de verificación  : eliminados`);
-    console.log(`Seller anonimizado         : ${target.seller?.name ?? '-'}`);
-    console.log(`Canal renombrado           : ${target.channel?.code ?? '-'} → ${target.channel?.code}-deleted`);
-    console.log(`User anonimizado           : ${target.user.identifier} → deleted_${target.user.id}@deleted.invalid`);
-    console.log(`Administrator eliminado    : ${adminId}`);
-    console.log(`\nEl correo ${target.user.identifier} y el nombre de tienda quedan libres.`);
+    console.log(`Suscripción cancelada: ${adminId}`);
+    console.log(`Registros de verificación: eliminados`);
+    console.log(`Seller anonimizado: ${target.seller?.name ?? '-'}`);
+    console.log(`Canal renombrado: ${target.channel?.code ?? '-'} → ${target.channel?.code}-deleted`);
+    console.log(`User anonimizado: ${target.user.identifier} → deleted_${target.user.id}@deleted.invalid`);
+    console.log(`Administrator eliminado: ${adminId}`);
+    console.log(`El correo ${target.user.identifier} y el nombre de tienda quedan libres.`);
 }
 
 async function main() {
