@@ -68,7 +68,11 @@ export class BlogPost extends VendureEntity implements Translatable {
     relatedProducts: Product[];
 
     @ManyToMany(() => BlogPost)
-    @JoinTable({ name: 'blog_post_related_posts' })
+    @JoinTable({
+        name: 'blog_post_related_posts',
+        joinColumn: { name: 'blogPostId_1', referencedColumnName: 'id' },
+        inverseJoinColumn: { name: 'blogPostId_2', referencedColumnName: 'id' },
+    })
     relatedPosts: BlogPost[];
 
     @OneToMany(() => BlogPostTranslation, translation => translation.base, { eager: true, cascade: ['insert', 'update'] })

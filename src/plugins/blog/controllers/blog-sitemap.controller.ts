@@ -1,15 +1,24 @@
-import { Controller, Get, Header, Inject } from '@nestjs/common';
+import { Controller, Get, Header, Inject, NotFoundException } from '@nestjs/common';
 import { TransactionalConnection } from '@vendure/core';
 
+import { BLOG_PLUGIN_OPTIONS } from '../constants';
 import { BlogPost } from '../entities/blog-post.entity';
+import { PluginInitOptions } from '../types';
 
 @Controller('sitemap')
 export class BlogSitemapController {
-    constructor(private connection: TransactionalConnection) {}
+    constructor(
+        private connection: TransactionalConnection,
+        @Inject(BLOG_PLUGIN_OPTIONS) private options: PluginInitOptions,
+    ) {}
 
     @Get('blog.xml')
     @Header('Content-Type', 'text/xml')
     async getSitemap(): Promise<string> {
+        if (this.options.enableSitemap === false) {
+            throw new NotFoundException('Blog sitemap is disabled');
+        }
+
         const posts = await this.connection.rawConnection
             .getRepository(BlogPost)
             .find({

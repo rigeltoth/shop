@@ -78,7 +78,7 @@ export const blogDetail: DashboardRouteDefinition = {
         queryDocument: getBlogPostDetail,
         breadcrumb: (isNew, entity) => [
             { path: '/blog', label: 'Blog' },
-            isNew ? (entity ? 'New Post' : 'New Post') : (entity as any)?.title ?? 'Post',
+            isNew ? 'New Post' : (entity as any)?.title ?? 'Post',
         ],
     }),
     component: route => {
@@ -97,7 +97,8 @@ export const blogDetail: DashboardRouteDefinition = {
                     content: post?.content,
                     slug: post?.slug,
                     excerpt: post?.excerpt,
-                    languageCode: post?.languageCode,
+                    // Fallback to 'es' if the entity doesn't yet expose languageCode
+                    languageCode: (post as any)?.languageCode ?? 'es',
                     status: post?.status,
                     scheduledAt: post?.scheduledAt,
                     featuredImageId: post?.featuredImage?.id,
