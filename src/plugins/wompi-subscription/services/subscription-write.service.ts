@@ -7,11 +7,12 @@ import { PlanFeature } from '../entities/plan-feature.entity';
 import { Feature } from '../entities/feature.entity';
 import { Logger, Product, ProductVariant } from '@vendure/core';
 import { PaymentFlowType } from '../payment-methods';
-import { FEATURE_CODES } from '../constants';
+import { FEATURE_CODES, DEFAULT_PLAN_NAMES } from '../constants';
 import { PlanManagementService } from './plan-management.service';
 import { SubscriptionQueryService } from './subscription-query.service';
 import { ProductLimitEnforcementService } from './product-limit-enforcement.service';
 import { calculateEndDate } from './utils/date-utils';
+import { BifrostService } from '../../bifrost/services/bifrost.service';
 
 @Injectable()
 export class SubscriptionWriteService {
@@ -25,6 +26,7 @@ export class SubscriptionWriteService {
         private planManagementService: PlanManagementService,
         private subscriptionQueryService: SubscriptionQueryService,
         private productLimitEnforcementService: ProductLimitEnforcementService,
+        private bifrostService: BifrostService,
     ) { }
 
     async createRecurrentSubscription(
@@ -68,6 +70,11 @@ export class SubscriptionWriteService {
             }
 
             Logger.info(`Upgraded subscription ${saved.id} for administrator ${administratorId} to plan ${plan.name}`, 'SubscriptionWriteService');
+
+            void this.bifrostService.updateSellerVK(administratorId, plan.name).catch((e: any) => {
+                Logger.error(`Failed to update bifrost key for administrator ${administratorId}: ${e?.message}`, 'SubscriptionWriteService');
+            });
+
             return reloaded ?? saved;
         }
 
@@ -88,6 +95,11 @@ export class SubscriptionWriteService {
         const saved = await this.subscriptionRepository.save(subscription);
         const reloaded = await this.subscriptionQueryService.reloadSubscriptionWithPlan(saved.id);
         Logger.info(`Created recurrent subscription ${saved.id} for administrator ${administratorId} with plan ${plan.name}`, 'SubscriptionWriteService');
+
+        void this.bifrostService.updateSellerVK(administratorId, plan.name).catch((e: any) => {
+            Logger.error(`Failed to update bifrost key for administrator ${administratorId}: ${e?.message}`, 'SubscriptionWriteService');
+        });
+
         return reloaded ?? saved;
     }
 
@@ -150,7 +162,13 @@ export class SubscriptionWriteService {
             subscription.billingPaymentSourceId = paymentSourceId;
         }
 
-        return this.subscriptionRepository.save(subscription);
+        const saved = await this.subscriptionRepository.save(subscription);
+
+        void this.bifrostService.updateSellerVK(subscription.administratorId, subscription.plan?.name ?? DEFAULT_PLAN_NAMES.FREE).catch((e: any) => {
+            Logger.error(`Failed to update bifrost key for administrator ${subscription.administratorId}: ${e?.message}`, 'SubscriptionWriteService');
+        });
+
+        return saved;
     }
 
     async createSubscription(

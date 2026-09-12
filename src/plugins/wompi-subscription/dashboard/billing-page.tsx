@@ -28,6 +28,7 @@ import { ViewStep } from './ViewStep';
 import { PlansStep } from './PlansStep';
 import { PaymentStep } from './PaymentStep';
 import { SavedPaymentMethodsSection } from './components/saved-payment-methods-section';
+import { AiUsageCard } from './components/ai-usage-card';
 
 export function BillingPage() {
     const [step, setStep] = useState<'view' | 'plans' | 'payment'>('view');
@@ -254,6 +255,7 @@ export function BillingPage() {
                                 onCancel={handleCancel}
                                 actionLoading={actionLoading}
                             />
+                            <AiUsageCard />
                             <SavedPaymentMethodsSection
                                 onSubscriptionUpdated={loadData}
                             />

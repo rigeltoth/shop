@@ -1,44 +1,57 @@
 import { Injectable } from '@nestjs/common';
-import { RequestContext } from '@vendure/core';
- import { UrlFormatter } from './url-formatter';
+import { RequestContext, Permission, TransactionalConnection, Administrator } from '@vendure/core';
+import { UrlFormatter } from './url-formatter';
+import { BifrostService } from '../../bifrost/services/bifrost.service';
 
 @Injectable()
 export class AiChat {
-     private readonly urlFormatter = new UrlFormatter();
+    private readonly urlFormatter = new UrlFormatter();
+
+    constructor(
+        private bifrostService: BifrostService,
+        private connection: TransactionalConnection,
+    ) { }
+
     /**
-     * Envía un mensaje al servicio de IA y recibe una respuesta
+     * Envía un mensaje al servicio de IA (bifrost) con la virtual key del usuario
+     * y recibe una respuesta.
      */
-    async sendMessage(query: string, history: Array<{role: string, content: string}>): Promise<{response: string}> {
+    async sendMessage(
+        ctx: RequestContext,
+        query: string,
+        history: Array<{ role: string, content: string }> = [],
+    ): Promise<{ response: string }> {
         try {
-            const aiChatUrl = process.env.AI_CHAT_URL;
-            if (!aiChatUrl) {
-                throw new Error('AI_CHAT_URL environment variable is not defined');
+            const isSuperAdmin = ctx.userHasPermissions([Permission.SuperAdmin]);
+            const key = isSuperAdmin
+                ? await this.bifrostService.getSuperAdminVK()
+                : await this.resolveSellerKey(ctx);
+
+            if (!key) {
+                throw new Error('No bifrost virtual key available for this user');
             }
 
-            const response = await fetch(aiChatUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
-                    query
-                }),
-            });
+            const messages = [
+                ...history.map(m => ({ role: m.role, content: m.content })),
+                { role: 'user', content: query },
+            ];
 
-            if (!response.ok) {
-                throw new Error(`AI service responded with status: ${response.status}`);
-            }
+            const rawResponse = await this.bifrostService.infer(key, messages);
 
-            const data = await response.json();
-            const rawResponse = data.answer || '';
-
-            // TEMPORALMENTE DESACTIVADO: El formateo de URLs está desactivado hasta que
-            // el equipo de IA estandarice las respuestas con URLs de productos.
-            // Cuando esté listo, descomentar las siguientes 2 líneas y comentar la línea de 'return' actual:
             const formattedResponse = this.urlFormatter.formatUrls(rawResponse);
             return { response: formattedResponse };
         } catch (error) {
             throw new Error(`Failed to call AI service: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+    }
+
+    private async resolveSellerKey(ctx: RequestContext) {
+        if (!ctx.activeUserId) {
+            return null;
+        }
+        const repo = this.connection.rawConnection.getRepository(Administrator);
+        const admin = await repo.findOne({ where: { user: { id: Number(ctx.activeUserId) } } });
+        if (!admin) return null;
+        return this.bifrostService.getSellerVK(Number(admin.id));
     }
 }

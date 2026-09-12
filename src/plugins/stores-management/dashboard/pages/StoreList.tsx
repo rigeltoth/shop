@@ -10,6 +10,8 @@ import {
 } from '../graphql-queries';
 import { BadgeNuevo } from '../components/BadgeNuevo';
 import { BadgeDeleted } from '../components/BadgeDeleted';
+import { BIFROST_USAGES_QUERY, type BifrostKeyUsage } from '../graphql-queries';
+import { usageBarClass } from '../bifrost-usage';
 
 const storeListDocument = graphql(`
     query StoreList($options: StoreListWithTotalsListOptions) {
@@ -21,6 +23,7 @@ const storeListDocument = graphql(`
                 createdAt
                 isNew
                 isDeleted
+                adminId
                 adminName
                 adminEmail
                 adminLastLogin
@@ -47,6 +50,20 @@ export function StoreList({ route }: { route: any }) {
     const [refreshKey, setRefreshKey] = useState(0);
     const filterRef = useRef({ isNew: undefined as boolean | undefined, isDeleted: undefined as boolean | undefined });
     const [totals, setTotals] = useState({ totalItems: 0, totalActiveStores: 0 });
+    const [bifrostUsages, setBifrostUsages] = useState<BifrostKeyUsage[]>([]);
+
+    useEffect(() => {
+        gql<{ bifrostKeyUsages: BifrostKeyUsage[] }>(BIFROST_USAGES_QUERY)
+            .then(d => setBifrostUsages(d.bifrostKeyUsages ?? []))
+            .catch(() => setBifrostUsages([]));
+    }, []);
+
+    const usageByAdminId = new Map<number, BifrostKeyUsage>();
+    for (const u of bifrostUsages) {
+        if (u.key.administratorId != null && !usageByAdminId.has(u.key.administratorId)) {
+            usageByAdminId.set(u.key.administratorId, u);
+        }
+    }
 
     useEffect(() => {
         const filter: Record<string, any> = {};
@@ -116,6 +133,24 @@ export function StoreList({ route }: { route: any }) {
                 productCount: {
                     cell: ({ row }: any) => <div className="text-center">{row.original.productCount ?? '—'}</div>,
                 },
+                adminId: {
+                    header: 'IA',
+                    cell: ({ row }: any) => {
+                        const adminId = row.original.adminId;
+                        const u = adminId != null ? usageByAdminId.get(adminId) : undefined;
+                        if (!u) return <span className="text-muted-foreground/50">—</span>;
+                        const pct = Math.min(Math.max(u.usage.usagePercent ?? 0, 0), 100);
+                        return (
+                            <div className="flex items-center gap-2">
+                                <div className="h-2 w-16 bg-gray-100 rounded-full overflow-hidden">
+                                    <div className={`h-full rounded-full ${usageBarClass(pct)}`} style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="text-xs text-muted-foreground">{Math.round(pct)}%</span>
+                            </div>
+                        );
+                    },
+                    enableSorting: false,
+                },
                 isNew: {
                     header: '',
                     cell: ({ row }: any) => (
@@ -144,7 +179,7 @@ export function StoreList({ route }: { route: any }) {
                     },
                 },
             }}
-            defaultColumnOrder={['storeName', 'channelCode', 'adminName', 'adminEmail', 'productCount', 'isDeleted', 'isNew', 'createdAt']}
+            defaultColumnOrder={['storeName', 'channelCode', 'adminName', 'adminEmail', 'productCount', 'adminId', 'isDeleted', 'isNew', 'createdAt']}
             defaultVisibility={{ adminEmail: false, isNew: true, isDeleted: true }}
         >
             <div className="flex items-center justify-between w-full gap-4">

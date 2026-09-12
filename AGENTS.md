@@ -59,6 +59,7 @@ Root `GET /` redirects to `/dashboard`.
 | **Invoice** | `INVOICE_SERVICE_URL`, `INVOICE_SERVICE_API_KEY`, `MATIAS_PREFIX`, `MATIAS_RESOLUTION_NUMBER` |
 | **Delivery** | `SERVIENTREGA_API_KEY`, `DELIVERY_COST_API_KEY`, `DELIVERY_COST_API_URL`, `DELIVERY_ORDER_API_KEY`, `DELIVERY_ORDER_API_URL`, `DELIVERY_ORDER_WEBHOOK_SECRET` |
 | **Meta OAuth** | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `FACEBOOK_GRAPH_VERSION` |
+| **Bifrost** | `BIFROST_BASE_URL`, `BIFROST_ADMIN_USER`, `BIFROST_ADMIN_PASSWORD` |
 | **Dashboard** | `DASHBOARD_DEFAULT_LANGUAGE`, `DASHBOARD_DEFAULT_LOCALE` |
 
 ---
@@ -98,6 +99,7 @@ Root `GET /` redirects to `/dashboard`.
 | 29 | StoresManagementPlugin | `stores-management.plugin.ts` | Store listing, analytics dashboard, daily job, investor metrics |
 | 30 | SellerSettingsVisibilityPlugin | — | Restrict settings sidebar items |
 | 31 | WompiSubscriptionPlugin | Full Wompi config | Subscription plans & billing |
+| 32 | BifrostPlugin | `BIFROST_*` config | LLM gateway virtual keys (VK) per seller/superadmin |
 
 ---
 
@@ -394,6 +396,63 @@ Doble protección:
 
 ---
 
+## 10. BifrostPlugin (`src/plugins/bifrost/`)
+
+**Class:** `BifrostPlugin.init({ bifrostBaseUrl, bifrostAdminUser, bifrostAdminPassword })`
+**Dashboard:** None
+
+LLM gateway integration (Maxim BiFrost) that provisions a **virtual key** (`sk-bf-*`) per user via the governance API (`/api/governance/virtual-keys`, Basic auth).
+
+### What it does
+
+- **Seller VKs** are tied to the `WompiSubscriptionPlugin` subscription lifecycle (by `administratorId`): provisioned on registration (Free), upgraded on plan purchase, refreshed on monthly renewal, downgraded on cancel.
+- **SuperAdmin VK** (`kind=superadmin`, plan `ecommer`) is a single global key reused across all superadmins.
+- Each VK carries `budgets[].reset_duration: "1M"` (monthly spend), rate limits, and provider model routing (azure/Phi-4).
+
+### Bifrost plans (`plans.ts`, provider azure)
+
+| Plan | Models | Budget | Rate limit |
+|---|---|---|---|
+| `free` | `Phi-4-mini-instruct` | $0.50/1M | 5k tok/1h, 10 req/1m |
+| `tienda` | `Phi-4-mini-instruct` | $3.00/1M | 20k tok/1h, 60 req/1m |
+| `omnichannel` | `Phi-4`, `Phi-4-mini-instruct` | $7.00/1M | 100k tok/1h, 120 req/1m |
+| `ecommer` (superadmin) | `Phi-4`, `Phi-4-mini-instruct` | $10.00/1M | 100k tok/1h, 120 req/1m |
+
+### Key services
+
+- **`BifrostClient`** — HTTP to governance + inference (`/v1/chat/completions`, `x-bf-vk`).
+- **`BifrostService`** — `provisionSellerVK`, `updateSellerVK`, `revokeVK`, `getSellerVK`, `getSuperAdminVK`, `infer`.
+- **Entity `BifrostKey`** (`bifrost_key`) — `id` (uuid / bifrost vk_id), `value` (`sk-bf-*`), `administratorId`, `kind`, `planName`, `isActive`, `expiresAt`.
+
+### GraphQL (Admin + Shop API)
+
+```graphql
+extend type Query {
+    myBifrostKey: BifrostKey          # seller or superadmin VK
+    bifrostKeys: [BifrostKey!]!        # superadmin only
+}
+extend type Mutation {
+    provisionBifrostKey(administratorId: ID!): BifrostKey
+}
+```
+
+### Integration hooks
+
+| Hook (file) | Bifrost action |
+|---|---|
+| `PlanManagementService.assignFreePlanToAdministrator` | `provisionSellerVK(free)` |
+| `SellerOnboardingService.assignFreePlanToSeller` | `provisionSellerVK(free)` |
+| `SubscriptionWriteService.createRecurrentSubscription` | `updateSellerVK(plan)` |
+| `SubscriptionWriteService.activateSubscriptionAfterPayment` | `updateSellerVK(plan)` |
+| `SubscriptionLifecycleService.cancelSubscription` / `downgradeToFree` | `updateSellerVK(free)` |
+| `BillingJobService.processMonthlyCollection` | `updateSellerVK(plan)` on renewal |
+
+### AI chat consumption
+
+`AiChat` (`ai-chat/services/ai-chat.ts`) now routes inference through `BifrostService.infer`, resolving the user's VK by `RequestContext` (superadmin → `ecommer` VK; seller → their plan VK). `AI_CHAT_URL` was removed.
+
+---
+
 # Dashboard Build Notes (`vite.config.mts`)
 
 ## Build Command
@@ -542,3 +601,4 @@ Expone solo: `platform`, `username`, `dmLink`, `profileUrl`, `displayName`, `inP
 | 2026-06-29 | Add SellerSettingsVisibilityPlugin + block sellers nav + rebuild | `26dff17`, `c8d899a`, `328fdd3` |
 | 2026-07-01 | Full stores-management plugin: store listing with ListPage, analytics dashboard with Recharts, daily analytics job, investor metrics, backfill mutation, custom chart colors, restricted to SuperAdmin | `7ca8392`, `458a4c5`, `038e17d`, `cb6541e`, `f0e1c97`, `e0d876a`, `0d74e1f`, `1aab58a`, `56b2e5f`, `7b27aff`, `333a4f3`, `75be861`, `951f5ff` |
 | 2026-07-01 | Add useIsSuperAdmin hook + superadminvisibility dashboard extension; hide DeleteAccountSection from superadmin | `f7b3e51`, `9c0617a` |
+| 2026-09-12 | Add BifrostPlugin: LLM gateway virtual keys per seller (Free/Tienda/Omnichannel) + superadmin `ecommer` VK, tied to subscription lifecycle; migrate AiChat to bifrost inference | — |

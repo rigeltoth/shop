@@ -11,6 +11,7 @@ import {
     DEFAULT_PLAN_NAMES,
 } from '../constants';
 import { PaymentFlowType } from '../payment-methods';
+import { BifrostService } from '../../bifrost/services/bifrost.service';
 
 @Injectable()
 export class PlanManagementService implements OnModuleInit {
@@ -19,6 +20,7 @@ export class PlanManagementService implements OnModuleInit {
         @InjectRepository(Feature) private featureRepository: Repository<Feature>,
         @InjectRepository(PlanFeature) private planFeatureRepository: Repository<PlanFeature>,
         @InjectRepository(CustomerSubscription) private subscriptionRepository: Repository<CustomerSubscription>,
+        private bifrostService: BifrostService,
     ) { }
 
     async onModuleInit() {
@@ -54,6 +56,11 @@ export class PlanManagementService implements OnModuleInit {
 
         const saved = await this.subscriptionRepository.save(subscription);
         Logger.info(`Assigned free plan to administrator ${administratorId}`, 'PlanManagementService');
+
+        void this.bifrostService.provisionSellerVK(administratorId, DEFAULT_PLAN_NAMES.FREE).catch((e: any) => {
+            Logger.error(`Failed to provision bifrost key for administrator ${administratorId}: ${e?.message}`, 'PlanManagementService');
+        });
+
         return saved;
     }
 

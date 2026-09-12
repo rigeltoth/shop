@@ -23,7 +23,7 @@ export class AiChatAdminResolver {
         }
     ): Promise<{response: string, error?: string}> {
         try {
-            const result = await this.aiChat.sendMessage(args.message, args.history);
+            const result = await this.aiChat.sendMessage(ctx, args.message, args.history);
             return { response: result.response };
         } catch (error) {
             return { 

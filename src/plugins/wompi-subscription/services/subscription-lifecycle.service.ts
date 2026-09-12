@@ -9,6 +9,7 @@ import { PlanManagementService } from './plan-management.service';
 import { ProductLimitEnforcementService } from './product-limit-enforcement.service';
 import { FEATURE_CODES } from '../constants';
 import { calculateEndDate } from './utils/date-utils';
+import { BifrostService } from '../../bifrost/services/bifrost.service';
 
 @Injectable()
 export class SubscriptionLifecycleService {
@@ -18,6 +19,7 @@ export class SubscriptionLifecycleService {
         private wompiService: WompiService,
         private planManagementService: PlanManagementService,
         private productLimitEnforcementService: ProductLimitEnforcementService,
+        private bifrostService: BifrostService,
     ) { }
 
     async updateSubscriptionStatus(subscriptionId: number, status: SubscriptionStatus): Promise<CustomerSubscription> {
@@ -106,6 +108,10 @@ export class SubscriptionLifecycleService {
 
         const saved = await this.subscriptionRepository.save(subscription);
 
+        void this.bifrostService.updateSellerVK(administratorId, freePlan.name).catch((e: any) => {
+            Logger.error(`Failed to downgrade bifrost key for administrator ${administratorId}: ${e?.message}`, 'SubscriptionLifecycleService');
+        });
+
         const productLimitValue = await this.getFeatureValue(administratorId, FEATURE_CODES.MAX_PRODUCTS);
         const productLimit = productLimitValue ? parseInt(productLimitValue, 10) : 15;
         await this.productLimitEnforcementService.hideExcessProducts(administratorId, productLimit);
@@ -147,7 +153,13 @@ export class SubscriptionLifecycleService {
         subscription.planId = freePlan.id;
         subscription.status = SubscriptionStatus.ACTIVE;
 
-        return this.subscriptionRepository.save(subscription);
+        const saved = await this.subscriptionRepository.save(subscription);
+
+        void this.bifrostService.updateSellerVK(subscription.administratorId, freePlan.name).catch((e: any) => {
+            Logger.error(`Failed to downgrade bifrost key for administrator ${subscription.administratorId}: ${e?.message}`, 'SubscriptionLifecycleService');
+        });
+
+        return saved;
     }
 
     private async getFeatureValue(administratorId: number, featureCode: string): Promise<string | null> {

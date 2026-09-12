@@ -22,15 +22,22 @@ import {
     Loader2,
     Building2,
     Ban,
+    Sparkles,
+    Key,
+    Cpu,
+    DollarSign,
 } from 'lucide-react';
 import {
     gql,
     STORE_QUERY,
     type StoreNode,
     formatDate,
+    BIFROST_USAGES_QUERY,
+    type BifrostKeyUsage,
 } from '../graphql-queries';
 import { BadgeNuevo } from '../components/BadgeNuevo';
 import { BadgeDeleted } from '../components/BadgeDeleted';
+import { maskKey, usageBarClass } from '../bifrost-usage';
 
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
     return (
@@ -61,6 +68,7 @@ export function StoreDetail({ route }: { route: any }) {
     const [store, setStore] = useState<StoreNode | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [bifrostUsage, setBifrostUsage] = useState<BifrostKeyUsage | null>(null);
 
     useEffect(() => {
         if (!id) return;
@@ -71,6 +79,16 @@ export function StoreDetail({ route }: { route: any }) {
             .catch(e => setError(e.message))
             .finally(() => setLoading(false));
     }, [id]);
+
+    useEffect(() => {
+        if (!store?.adminId) return;
+        gql<{ bifrostKeyUsages: BifrostKeyUsage[] }>(BIFROST_USAGES_QUERY)
+            .then(d => {
+                const match = (d.bifrostKeyUsages ?? []).find(u => u.key.administratorId === store.adminId) ?? null;
+                setBifrostUsage(match);
+            })
+            .catch(() => setBifrostUsage(null));
+    }, [store?.adminId]);
 
     return (
         <Page pageId="store-detail">
@@ -141,6 +159,42 @@ export function StoreDetail({ route }: { route: any }) {
                                 <InfoRow icon={<UserIcon className="h-4 w-4" />} label="Nombre" value={store.adminName ?? '—'} />
                                 <InfoRow icon={<Mail className="h-4 w-4" />} label="Email" value={store.adminEmail ?? '—'} />
                                 <InfoRow icon={<LogIn className="h-4 w-4" />} label="Último login" value={formatDate(store.adminLastLogin)} />
+                            </DetailCard>
+
+                            <DetailCard title={
+                                <span className="flex items-center gap-2">
+                                    <Sparkles className="h-4 w-4" />
+                                    Consumo IA
+                                </span>
+                            }>
+                                {bifrostUsage ? (
+                                    (() => {
+                                        const u = bifrostUsage.usage;
+                                        const pct = Math.min(Math.max(u.usagePercent ?? 0, 0), 100);
+                                        return (
+                                            <div className="space-y-3">
+                                                <div className="space-y-1">
+                                                    <div className="flex justify-between text-sm">
+                                                        <span className="text-muted-foreground">Uso mensual</span>
+                                                        <span className="font-medium">{Math.round(pct)}%</span>
+                                                    </div>
+                                                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                        <div className={`h-full rounded-full transition-all ${usageBarClass(pct)}`} style={{ width: `${pct}%` }} />
+                                                    </div>
+                                                </div>
+                                                <InfoRow icon={<Key className="h-4 w-4" />} label="Virtual Key" value={maskKey(bifrostUsage.key.value)} />
+                                                <InfoRow icon={<Cpu className="h-4 w-4" />} label="Plan" value={bifrostUsage.key.planName} />
+                                                <InfoRow icon={<DollarSign className="h-4 w-4" />} label="Budget" value={`$${u.budgetUsed.toFixed(4)} / $${u.budgetMax.toFixed(2)}`} />
+                                                <InfoRow icon={<Calendar className="h-4 w-4" />} label="Reset de budget" value={formatDate(u.budgetResetAt)} />
+                                                <InfoRow icon={<Hash className="h-4 w-4" />} label="Tokens" value={`${u.tokenUsed} / ${u.tokenLimit}`} />
+                                                <InfoRow icon={<Hash className="h-4 w-4" />} label="Peticiones" value={`${u.requestUsed} / ${u.requestLimit}`} />
+                                                <InfoRow icon={<Calendar className="h-4 w-4" />} label="Expira" value={formatDate(bifrostUsage.key.expiresAt)} />
+                                            </div>
+                                        );
+                                    })()
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">Sin virtual key asignada</p>
+                                )}
                             </DetailCard>
 
                             {store.storeDescription && (

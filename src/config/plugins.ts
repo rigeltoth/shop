@@ -61,6 +61,7 @@ import {
 import { SuperadminvisibilityPlugin } from '../plugins/superadminvisibility/superadminvisibility.plugin';
 import { BlogPlugin } from '../plugins/blog/blog.plugin';
 import { WompiSubscriptionPlugin } from '../plugins/wompi-subscription/wompi-subscription.plugin';
+import { BifrostPlugin } from '../plugins/bifrost/bifrost.plugin';
 import { DynamicShippingPricePlugin } from '../plugins/dynamic-shipping-price';
 import { MetricsApiPlugin } from '../plugins/metrics-api/metrics-api.plugin';
 import { SafeShippingPlugin } from '../plugins/safe-shipping/safe-shipping.plugin';
@@ -240,6 +241,12 @@ export const plugins: VendureConfig['plugins'] = [
     currency: process.env.WOMPI_CURRENCY || 'COP',
     wompiPublicKey:
       process.env.WOMPI_PUBLIC_KEY || process.env.PAYMENT_PUBLIC_KEY || '',
+  }),
+
+  BifrostPlugin.init({
+    bifrostBaseUrl: process.env.BIFROST_BASE_URL || '',
+    bifrostAdminUser: process.env.BIFROST_ADMIN_USER || '',
+    bifrostAdminPassword: process.env.BIFROST_ADMIN_PASSWORD || '',
   }),
 
   MetricsApiPlugin,
