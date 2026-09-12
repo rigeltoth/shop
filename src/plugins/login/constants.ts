@@ -8,6 +8,7 @@ export const loggerCtx = 'LoginPlugin';
  * Estos permisos se aplican tanto a usuarios nuevos como existentes
  */
 export const SELLER_ADMIN_PERMISSIONS: Permission[] = [
+    Permission.Authenticated,
     Permission.CreateOrder,
     Permission.ReadOrder,
     Permission.UpdateOrder,

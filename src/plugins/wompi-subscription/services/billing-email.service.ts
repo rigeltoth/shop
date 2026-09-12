@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { readFileSync } from 'node:fs';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const mjml: (input: string, options?: Record<string, any>) => { html: string; errors: any[] } = require('mjml');
+const mjml: (input: string, options?: Record<string, any>) => Promise<{ html: string; errors: any[] }> = require('mjml');
 
 @Injectable()
 export class BillingEmailService {
@@ -38,7 +38,7 @@ export class BillingEmailService {
     }
 
     private compileTemplates() {
-        const names = ['renewal-success', 'renewal-failed', 'manual-reminder', 'payment-expired', 'suspended'];
+        const names = ['renewal-success', 'renewal-failed', 'manual-reminder', 'payment-expired', 'suspended', 'grace-period'];
         for (const name of names) {
             try {
                 const source = readFileSync(path.join(this.templatesDir, `${name}.hbs`), 'utf8');
@@ -49,39 +49,50 @@ export class BillingEmailService {
         }
     }
 
-    private render(templateName: string, data: Record<string, any>): string {
+    private async render(templateName: string, data: Record<string, any>): Promise<string> {
         const compile = this.compiled[templateName];
         if (!compile) {
             throw new Error(`Template ${templateName} not found`);
         }
         const mjmlContent = compile(data);
-        const { html } = mjml(mjmlContent);
+        const { html, errors } = await mjml(mjmlContent);
+        if (errors?.length) {
+            this.logger.error(`MJML errors en ${templateName}: ${JSON.stringify(errors)}`);
+        }
+        if (!html) {
+            throw new Error(`No se pudo generar HTML del email ${templateName}`);
+        }
         return html;
     }
 
     async sendRenewalSuccess(to: string, planName: string, endsAt: string) {
-        const html = this.render('renewal-success', { planName, endsAt });
+        const html = await this.render('renewal-success', { planName, endsAt });
         await this.send(to, 'Renovación exitosa - Ecommer.shop', html);
     }
 
     async sendRenewalFailed(to: string, planName: string, reason: string) {
-        const html = this.render('renewal-failed', { planName, reason });
+        const html = await this.render('renewal-failed', { planName, reason });
         await this.send(to, 'Error en la renovación - Ecommer.shop', html);
     }
 
     async sendManualReminder(to: string, planName: string, daysLeft: number) {
-        const html = this.render('manual-reminder', { planName, daysLeft: String(daysLeft) });
+        const html = await this.render('manual-reminder', { planName, daysLeft: String(daysLeft) });
         await this.send(to, 'Recordatorio de pago - Ecommer.shop', html);
     }
 
     async sendPaymentExpired(to: string, planName: string) {
-        const html = this.render('payment-expired', { planName });
+        const html = await this.render('payment-expired', { planName });
         await this.send(to, 'Pago pendiente expirado - Ecommer.shop', html);
     }
 
     async sendSuspended(to: string, planName: string) {
-        const html = this.render('suspended', { planName });
+        const html = await this.render('suspended', { planName });
         await this.send(to, 'Plan suspendido - Ecommer.shop', html);
+    }
+
+    async sendGracePeriodNotice(to: string, planName: string) {
+        const html = await this.render('grace-period', { planName });
+        await this.send(to, 'Período de gracia - Ecommer.shop', html);
     }
 
     private async send(to: string, subject: string, html: string) {

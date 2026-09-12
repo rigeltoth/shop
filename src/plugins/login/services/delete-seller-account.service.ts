@@ -11,12 +11,19 @@ import {
     User,
 } from '@vendure/core';
 import { CustomerSubscription, SubscriptionStatus } from '../../wompi-subscription/entities';
+import { SellerEmailVerification } from '../entities/seller-email-verification.entity';
 
 const LOG_CTX = 'DeleteSellerAccountService';
 
 export interface DeleteSellerAccountResult {
     success: boolean;
     message: string;
+}
+
+interface SoftDeleteContext {
+    seller: Seller;
+    sellerChannel: Channel;
+    admin: Administrator;
 }
 
 @Injectable()
@@ -27,11 +34,6 @@ export class DeleteSellerAccountService {
 
     async deleteSellerAccount(ctx: RequestContext): Promise<DeleteSellerAccountResult> {
         const adminRepo = this.connection.getRepository(ctx, Administrator);
-        const userRepo = this.connection.getRepository(ctx, User);
-        const sellerRepo = this.connection.getRepository(ctx, Seller);
-        const channelRepo = this.connection.getRepository(ctx, Channel);
-        const productRepo = this.connection.getRepository(ctx, Product);
-        const subRepo = this.connection.getRepository(ctx, CustomerSubscription);
 
         const userId = ctx.activeUserId;
         if (!userId) {
@@ -67,6 +69,7 @@ export class DeleteSellerAccountService {
             return { success: false, message: 'No se encontró el canal del vendedor.' };
         }
 
+        const sellerRepo = this.connection.getRepository(ctx, Seller);
         const seller = await sellerRepo.findOne({
             where: { id: sellerChannel.sellerId },
         });
@@ -75,6 +78,56 @@ export class DeleteSellerAccountService {
             `Iniciando eliminación de cuenta del seller ${admin.emailAddress} (adminId: ${admin.id}, channel: ${sellerChannel.code})`,
             LOG_CTX,
         );
+
+        if (!seller) {
+            return { success: false, message: 'No se encontró el vendedor.' };
+        }
+
+        return this.performSoftDelete(ctx, { seller, sellerChannel, admin });
+    }
+
+    async deleteSellerById(ctx: RequestContext, sellerId: number): Promise<DeleteSellerAccountResult> {
+        const sellerRepo = this.connection.getRepository(ctx, Seller);
+        const channelRepo = this.connection.getRepository(ctx, Channel);
+        const adminRepo = this.connection.getRepository(ctx, Administrator);
+
+        const seller = await sellerRepo.findOne({ where: { id: sellerId } });
+        if (!seller) {
+            return { success: false, message: `No se encontró el vendedor ${sellerId}.` };
+        }
+        if (seller.deletedAt) {
+            return { success: false, message: 'Este vendedor ya ha sido eliminado.' };
+        }
+
+        const sellerChannel = await channelRepo.findOne({ where: { sellerId: sellerId as any } });
+        if (!sellerChannel) {
+            return { success: false, message: `No se encontró un canal vinculado al vendedor ${sellerId}.` };
+        }
+
+        const admin = await this.findAdminForChannel(ctx, Number(sellerChannel.id));
+        if (!admin) {
+            return { success: false, message: 'No se encontró el administrador del vendedor.' };
+        }
+
+        Logger.info(
+            `Iniciando eliminación del vendedor ${seller.name} (sellerId: ${seller.id}, channel: ${sellerChannel.code})`,
+            LOG_CTX,
+        );
+
+        return this.performSoftDelete(ctx, { seller, sellerChannel, admin });
+    }
+
+    private async performSoftDelete(
+        ctx: RequestContext,
+        { seller, sellerChannel, admin }: SoftDeleteContext,
+    ): Promise<DeleteSellerAccountResult> {
+        const productRepo = this.connection.getRepository(ctx, Product);
+        const sellerRepo = this.connection.getRepository(ctx, Seller);
+        const channelRepo = this.connection.getRepository(ctx, Channel);
+        const userRepo = this.connection.getRepository(ctx, User);
+        const adminRepo = this.connection.getRepository(ctx, Administrator);
+        const subRepo = this.connection.getRepository(ctx, CustomerSubscription);
+        const verificationRepo = this.connection.getRepository(ctx, SellerEmailVerification);
 
         // 1. Deshabilitar productos y variantes del seller channel
         const products = await productRepo
@@ -114,13 +167,18 @@ export class DeleteSellerAccountService {
             );
         }
 
+        // 2b. Eliminar registros de verificación de correo para liberar el email
+        await verificationRepo.delete({ administratorId: numericAdminId });
+        Logger.info(
+            `Registros de verificación eliminados para el administrador ${admin.id}`,
+            LOG_CTX,
+        );
+
         // 3. Soft-delete y anonimizar Seller
-        if (seller) {
-            seller.name = `Deleted_${seller.id}`;
-            seller.deletedAt = new Date();
-            await sellerRepo.save(seller);
-            Logger.info(`Seller ${seller.id} anonimizado y marcado como eliminado`, LOG_CTX);
-        }
+        seller.name = `Deleted_${seller.id}`;
+        seller.deletedAt = new Date();
+        await sellerRepo.save(seller);
+        Logger.info(`Seller ${seller.id} anonimizado y marcado como eliminado`, LOG_CTX);
 
         // 4. Renombrar canal para liberar código y token originales
         const originalCode = sellerChannel.code;
@@ -160,5 +218,29 @@ export class DeleteSellerAccountService {
             success: true,
             message: 'Tu cuenta ha sido eliminada permanentemente. Serás redirigido al inicio de sesión.',
         };
+    }
+
+    private async findAdminForChannel(ctx: RequestContext, channelId: number): Promise<Administrator | null> {
+        const adminRepo = this.connection.getRepository(ctx, Administrator);
+
+        const row: { adminId: number } | undefined = await this.connection.rawConnection
+            .createQueryBuilder()
+            .select('admin.id', 'adminId')
+            .from('channel', 'ch')
+            .innerJoin('role_channels_channel', 'rcc', 'rcc."channelId" = ch.id')
+            .innerJoin('role', 'role', 'role.id = rcc."roleId"')
+            .innerJoin('user_roles_role', 'urr', 'urr."roleId" = role.id')
+            .innerJoin('user', 'u', 'u.id = urr."userId"')
+            .innerJoin('administrator', 'admin', 'admin."userId" = u.id')
+            .where('ch.id = :channelId', { channelId })
+            .andWhere('role.code LIKE :suffix', { suffix: '%-admin' })
+            .getRawOne();
+
+        if (!row) return null;
+
+        return adminRepo.findOne({
+            where: { id: row.adminId },
+            relations: { user: true },
+        });
     }
 }

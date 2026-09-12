@@ -23,7 +23,7 @@ export class ProductLimitGuard extends FeatureGuard {
 
         const administratorId = await this.resolveAdministratorId(context);
         if (!administratorId) {
-            throw new ForbiddenException('Authentication required');
+            throw new ForbiddenException('Autenticación requerida');
         }
 
         await super.canActivate(context);
@@ -31,7 +31,7 @@ export class ProductLimitGuard extends FeatureGuard {
         const { allowed, current, limit } = await this.featureCheckService.checkProductLimit(administratorId);
         if (!allowed) {
             throw new ForbiddenException(
-                `Product limit reached. You have ${current}/${limit} products. Upgrade your plan to add more.`,
+                `Límite de productos alcanzado. Tienes ${current}/${limit} productos. Actualiza tu plan para añadir más.`,
             );
         }
 

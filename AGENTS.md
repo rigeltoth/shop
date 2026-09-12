@@ -98,6 +98,7 @@ Root `GET /` redirects to `/dashboard`.
 | 29 | StoresManagementPlugin | `stores-management.plugin.ts` | Store listing, analytics dashboard, daily job, investor metrics |
 | 30 | SellerSettingsVisibilityPlugin | — | Restrict settings sidebar items |
 | 31 | WompiSubscriptionPlugin | Full Wompi config | Subscription plans & billing |
+| 32 | PayoutPlugin | `platformFeePercent: 7.9` | Manual CSV-based seller dispersions via Bancolombia |
 
 ---
 
@@ -108,7 +109,7 @@ Root `GET /` redirects to `/dashboard`.
 | **Address** | `latitude`, `longitude`, `neighborhood`, `googlePlaceId` |
 | **Administrator** | `storeDescription`, `storeBannerUrl` (relation→Asset), `storePickupAddress`, `storePickupLatitude`, `storePickupLongitude`, `storePickupNeighborhood`, `storePickupGooglePlaceId` |
 | **Customer** | `acceptedTermsAndPrivacy`, `confirmedLegalAge`, `clerkId` |
-| **Seller** | `acceptedTermsAndPrivacy`, `confirmedLegalAge` |
+| **Seller** | `acceptedTermsAndPrivacy`, `confirmedLegalAge`, `connectedAccountId`, `socialLinks`, `payoutLegalIdType`, `payoutLegalId`, `payoutAccountType`, `payoutAccountNumber`, `payoutBankCode`, `payoutBrebKey`, `payoutBrebKeyType`, `payoutBrebVerified` |
 | **Product** | `storeFeatured` (boolean, UI: star toggle), `hidden`, `hiddenAt` |
 | **ProductVariant** | `weight`, `height`, `length`, `width`, `hidden`, `hiddenAt` |
 | **PaymentMethod** | `accountNumber`, `bankName`, `bankCertificationPdf`, `bankCertificationVerified` |
@@ -146,7 +147,7 @@ User clicks "Iniciar sesión con Google"
 
 ```
 User fills registration form (shop name + Google Maps pickup autocomplete)
-  → SellerRegistrationForm sends mutation registerSellerWithGoogle(input)
+  → SellerRegistrationWizard sends mutation registerSellerWithGoogle(input)
   → LoginResolver → GoogleAuthService → verify Google token
   → SellerOnboardingService.registerSeller(ctx, input)
       ├─ Validate pickup address
@@ -165,6 +166,38 @@ User fills registration form (shop name + Google Maps pickup autocomplete)
   → Auto-login via handleGoogleLogin(token, true) → same authenticate() flow
 ```
 
+### Registro Tradicional (Double Opt-In / staged)
+
+Flujo con correo + contraseña. **NO se crea cuenta hasta verificar** el correo:
+
+```
+1. registerSellerWithEmail(input) [Public]
+   → SellerVerificationService.createPending(email, input)
+       ├─ Valida: email formato, password ≥ 8, shopName blacklist, pickup coords
+       ├─ Rechaza si ya existe cuenta verificada con ese correo ("Inicia sesión")
+       ├─ Recicla cuentas legacy SIN verificar (rol -admin + verified=false + registro PENDING)
+       ├─ Upsert en tabla seller_email_verification (payload + passwordHash bcrypt + token 32hex + código 6 dígitos, expiración 24h)
+       └─ Envía correo (enlace + código) → NADA de Seller/Channel/Role/Admin se crea aún
+
+2. Verificación (página pública /dashboard/verify-email):
+   - Link: verifySellerEmail({ token })  → verifyByToken()
+   - Código: verifySellerEmail({ code }) → verifyByCode()  (sin pedir el correo)
+   → createSellerAccount(record):
+       ├─ SellerOnboardingService.registerSeller(ctx, payload, { preHashedPassword })  (crea todo)
+       ├─ Marca registro VERIFIED + administratorId
+       └─ AUTO-LOGIN: SessionService.createNewAuthenticatedSession + setSessionToken + channelToken
+
+3. Login:
+   - Nativo → SellerNativeAdminAuthenticationStrategy: si user.verified=false + rol -admin → bloquea con mensaje
+   - Google → autoVerifyForUser() si hay cuenta legacy pendiente (Google ya verificó el correo)
+
+4. Si nunca se verifica → no existe cuenta → el email queda libre (re-registrable)
+```
+
+**Seguridad:** password solo como hash bcrypt en el registro pendiente; token/código con sha256; expiración 24h + purga diaria de pendientes; superadmin siempre intocable; resend con throttle 60s; mensajes genéricos (sin enumeración de correos).
+
+**Script de mantenimiento:** `scripts/delete-unverified-seller.ts` (`--list` / `--email=` / `--adminId=`, confirmación o `--yes`, solo sellers sin verificar con registro PENDING, superadmin intocable, TypeORM sin SQL crudo).
+
 ### Seller Admin Permissions (`SELLER_ADMIN_PERMISSIONS` in `constants.ts`)
 
 42 permissions covering: Read/Create/Update/Delete for Order, Customer, PaymentMethod, ShippingMethod, Promotion, Asset, Tag, StockLocation, Product, Facet, Collection + UpdateAdministrator + ReadChannel.
@@ -174,23 +207,40 @@ User fills registration form (shop name + Google Maps pickup autocomplete)
 ### Key Services
 
 **`SellerOnboardingService`** — Core service with these public methods:
-- `registerSeller(ctx, input)` → Creates full seller infrastructure
+- `registerSeller(ctx, input, options?)` → Creates full seller infrastructure (options: `password` | `preHashedPassword`)
 - `syncSellerAdminPermissions(ctx, roleId)` → Update single role to SELLER_ADMIN_PERMISSIONS
 - `syncAllSellerRolesForUser(ctx, user)` → Called during authenticate(), updates all -admin roles for a user
 - `syncAllSellerAdminPermissionsForChannel(ctx, channelToken)` → Bulk update all seller roles in a channel
 - `createSellerChannelRoleAdmin()` (private) → Creates Seller/Channel/Role/Administrator
 
+**`SellerVerificationService`** — Flujo diferido (Double Opt-In). Métodos públicos:
+- `createPending(email, input)` → Guarda el registro pendiente (payload + passwordHash) y envía el correo
+- `verifyByToken(token)` / `verifyByCode(code)` → Verifica, crea la cuenta y devuelve `{ verified, sessionToken, channelToken }`
+- `resend(email)` → Reenvía (throttle 60s)
+- `recycleUnverifiedAccountByEmail(email)` → Recicla cuenta legacy sin verificar (guardas: rol `-admin`, `verified=false`, NO superadmin, registro PENDING)
+- `purgeExpiredPending()` → Job diario de limpieza de pendientes expirados
+- `autoVerifyForUser(user)` → Google auto-verifica sellers legacy
+- `deletePendingByEmail(email)` → Limpia pendiente al registrar por Google
+
+**`SellerVerificationEmailService`** — Resend directo (sin worker/JobQueue), Handlebars + MJML, template `verify-seller-email.hbs`. Retorna `boolean` según el resultado de Resend.
+
+**`SellerNativeAdminAuthenticationStrategy`** — Estrategia nativa de Admin API que **bloquea el login** de sellers con `verified=false` (rol `-admin`) devolviendo un mensaje claro (composición sobre `NativeAuthenticationStrategy`).
+
 **`GoogleAdminAuthenticationStrategy`** — Implements `AuthenticationStrategy<GoogleAuthData>`:
-- `authenticate(ctx, data)` → Resolves email, queries user, syncs seller roles, returns User
+- `authenticate(ctx, data)` → Resolves email, queries user, auto-verifies pending legacy sellers, syncs seller roles, returns User
 - Supports both ID tokens (verifyIdToken) and access tokens (tokeninfo + userinfo fallback)
 
 ### Dashboard Components
 
 | Component | Path | Purpose |
 |---|---|---|
-| `App.tsx` | `dashboard/App.tsx` | Main auth UI: home/login/register views, handles Google login redirect |
+| `AuthCard.tsx` | `dashboard/marketing/AuthCard.tsx` | Main auth UI: home/login/register views, handles Google login redirect, renders wizard en registro |
+| `SellerRegistrationWizard.tsx` | `dashboard/components/SellerRegistrationWizard.tsx` | Wizard de registro 3 pasos: método (Google/correo) → datos de acceso → tienda + confirmar. Google = 2 pasos |
+| `PickupAddressInput.tsx` | `dashboard/components/PickupAddressInput.tsx` | Dirección de recogida con Google Maps (autocompletar + picker), reutilizable |
+| `VerifySellerEmailPage.tsx` | `dashboard/components/VerifySellerEmailPage.tsx` | Página pública `/dashboard/verify-email`: verifica por link o código (sin pedir correo), auto-login y redirect al dashboard |
+| `email-validation.ts` | `dashboard/email-validation.ts` | Validación de email en tiempo real + sugerencia de dominios mal escritos |
 | `GoogleLoginButton.tsx` | `dashboard/components/GoogleLoginButton.tsx` | OAuth2 popup button |
-| `SellerRegistrationForm.tsx` | `dashboard/components/SellerRegistrationForm.tsx` | Registration form with Google Maps Places |
+| `GoogleMapPicker.tsx` | `dashboard/components/GoogleMapPicker.tsx` | Modal selector de ubicación en el mapa |
 | `LoginLogo.tsx` | `dashboard/components/LoginLogo.tsx` | Logo (dark/light) |
 | `DeleteAccountSection.tsx` | `dashboard/components/DeleteAccountSection.tsx` | Danger zone on profile page. Hidden from superadmin via `useIsSuperAdmin()` hook |
 
@@ -203,6 +253,9 @@ extend type Query {
 
 extend type Mutation {
     registerSellerWithGoogle(input: RegisterSellerWithGoogleInput!): GoogleSellerRegistrationResult!
+    registerSellerWithEmail(input: RegisterSellerWithEmailInput!): SellerRegistrationResult!
+    verifySellerEmail(input: VerifySellerEmailInput!): VerifySellerEmailResult!   # token O código
+    resendSellerVerificationEmail(email: String!): VerifySellerEmailResult!
     deleteSellerAccount: DeleteSellerAccountResult!
 }
 ```
@@ -215,6 +268,25 @@ extend type Mutation {
 3. Cancel subscription
 4. Anonymize Seller, User, Administrator (rename to `Deleted_<id>`)
 5. Rename Channel (append `-deleted`)
+
+**Nota:** al eliminar la cuenta también se borran los registros `seller_email_verification` del admin, dejando el email libre para re-registrar.
+
+### Entidad `seller_email_verification`
+
+Tabla del registro diferido (Double Opt-In). **Nombres de columna snake_case explícitos** (los `@Column({ name: ... })` de la entidad NO coinciden con el nombre de la propiedad; migraciones y QueryBuilder deben usar los mismos nombres):
+
+| columna | tipo | nota |
+|---|---|---|
+| `id` | int PK | |
+| `administrator_id` | int nullable | NULL mientras el registro está pendiente; se setea al verificar |
+| `email` | varchar | correo del pending |
+| `token_hash` | varchar | sha256 del token del enlace |
+| `code_hash` | varchar | sha256 del código de 6 dígitos |
+| `token_expires_at` | timestamp | now + 24h |
+| `status` | enum | `PENDING_VERIFICATION` / `VERIFIED` |
+| `last_sent_at` | timestamp | throttle de reenvío (60s) |
+| `shop_name`, `first_name`, `last_name`, `password_hash`, `pickup_address`, `pickup_latitude`, `pickup_longitude`, `pickup_neighborhood`, `pickup_postal_code`, `pickup_google_place_id` | — | payload del registro pendiente (password = hash bcrypt) |
+| `createdAt`, `updatedAt` | timestamp | camelCase (default) |
 
 ---
 
@@ -319,11 +391,133 @@ Full subscription/billing system:
 - **Features:** Product limits, variation limits, AI access, electronic billing
 - **Guards:** `FeatureGuard`, `ProductLimitGuard`, `ProductVariationLimitGuard`, `PlanGuard`, `DefaultChannelGuard`
 - **Webhooks:** Wompi webhook controller for payment status updates
-- **Enforcement:** Auto-hides/restores excess products/variants via custom fields
+- **Create-time limits (no auto-hide):** `ProductLimitResolver` wraps `createProduct`/`createProductVariants` with `@UseGuards(ProductLimitGuard)`/`ProductVariationLimitGuard` — the limit is enforced when the seller tries to CREATE, not by hiding existing products. No auto-hide/restore logic exists anymore (`ProductLimitEnforcementService` was removed).
+- **Impago notice:** `SubscriptionAlertSection` pageBlock on the profile page shows a warning banner (with link to `/dashboard/billing`) when status is `PENDING_PAYMENT` or `GRACE_PERIOD`
+- **Emails:** `renewal-success`, `renewal-failed`, `manual-reminder`, `payment-expired`, `suspended`, `grace-period`
+
+### Subscription Payment Flow (Admin Dashboard)
+
+**Recurrent methods** (CARD, NEQUI, DAVIPLATA, BANCOLOMBIA_TRANSFER) → `createSubscriptionWithPayment`:
+1. Admin tokenizes via WompiJS widget in `WompiPaymentWidget.tsx` (CARD/NEQUI/DAVIPLATA forms)
+2. Token sent to `createSubscriptionWithPayment` resolver
+3. Backend obtains `acceptance_token` + `accept_personal_auth` via `GET /merchants/{publicKey}`
+4. Creates **Payment Source** via `POST /payment_sources` (stores card/NEQUI with Wompi for recurring)
+5. Creates subscription record (ACTIVE or PENDING)
+6. Creates immediate **recurring transaction** via `POST /transactions` with `payment_source_id`
+   - CARD: sends `payment_method: { installments: 1 }` (NO `type: 'CARD'`)
+   - NEQUI/DAVIPLATA: no `payment_method` needed
+7. If status APPROVED → subscription extended immediately
+8. If PENDING → awaits webhook (`transaction.updated`)
+
+**Manual methods** (PSE, BANCOLOMBIA_QR, BANCOLOMBIA_COLLECT, BANCOLOMBIA_BNPL, SU_PLUS) → `createPendingSubscription`:
+1. Admin selects method → calls `CREATE_PENDING_MUTATION` directly (no tokenization)
+2. Backend creates pending subscription record (PENDING_PAYMENT status)
+3. Creates transaction via `POST /transactions` with method-specific fields:
+   - `payment_description`: `"Pago suscripcion {plan} por {channel}"`
+   - PSE: `financial_institution_code`, `user_type`, `user_legal_id_type`, `user_legal_id`
+   - QR/Recaudo: `sandbox_status: 'APPROVED'`
+   - BNPL: `user_legal_id_type`, `name`, `last_name`, `phone_code`, `phone_number`
+   - Su Plus: `user_legal_id_type`, `user_legal_id`
+4. Returns `{ transactionId, asyncPaymentUrl, qrImage }` → frontend starts **polling** every 2s via `getAdminWompiTransactionStatus`
+5. When status APPROVED → calls `onSuccess`
+
+### Admin Dashboard Components
+
+| Component | Path | Purpose |
+|---|---|---|
+| `PaymentStep.tsx` | `dashboard/PaymentStep.tsx` | Payment method selector + tokenization form + polling for manual methods |
+| `WompiPaymentWidget.tsx` | `dashboard/WompiPaymentWidget.tsx` | WompiJS tokenization forms (CARD, NEQUI, DAVIPLATA) |
+| `SavedPaymentMethodsSection` | `dashboard/components/saved-payment-methods-section.tsx` | Lists saved payment methods for the admin |
+| `AddPaymentMethodModal` | `dashboard/components/add-payment-method-modal.tsx` | Modal to manually add CARD/NEQUI/DAVIPLATA |
+| `SavedPaymentCard` | `dashboard/components/saved-payment-card.tsx` | Single saved method card with brand logo + actions |
+| `SubscriptionAlertSection` | `dashboard/subscription-alert.tsx` | Profile pageBlock: impago warning (PENDING_PAYMENT/GRACE_PERIOD) → link a `/billing` |
+
+### Resolvers
+
+| Resolver | File | Purpose |
+|---|---|---|
+| `SubscriptionResolver` | `api/subscription.resolver.ts` | `createSubscriptionWithPayment`, `createPendingSubscription` |
+| `AdminSavedPaymentResolver` | `api/admin-saved-payment.resolver.ts` | `mySavedPaymentMethods`, `savePaymentMethodForSubscription`, `useSavedPaymentMethodForSubscription` |
+| `WompiResolver` | `api/wompi.resolver.ts` | `GetWompiIntegritySignature`, `getAdminWompiTransactionStatus` |
+| `ProductLimitResolver` | `api/product-limit.resolver.ts` | `createProduct` (guard ProductLimit) + `createProductVariants` (guard ProductVariationLimit) — enforces limits at CREATE time |
 
 ---
 
-## 8. SuperadminvisibilityPlugin (`src/plugins/superadminvisibility/`)
+## 8. PaymentPlugin (`src/plugins/payment/`)
+
+**Class:** `PaymentPlugin.init({ secretKey, currency })`
+**Dashboard:** None (pure server-side)
+**APIs:** Shop API (checkout payment flows), Admin API (webhooks)
+
+### Checkout Payment Flow (Storefront)
+
+**Multi-method payment step** in `checkout/steps/payment-step.tsx`:
+
+#### New Card Flow (CARD)
+1. User fills card form (`CardForm.tsx`) with Luhn validation, brand detection
+2. Card tokenized via Wompi API directly (`POST /v1/tokens/cards` with public key)
+3. Backend creates **Payment Source** via `createWompiPaymentSource` mutation (obtiene acceptance tokens del backend)
+4. Transaction created via `initWompiSavedCardTransaction` with `payment_source_id`
+5. If 3DS needed → polling + iframe challenge
+6. `confirmWompiPayment` verifica APPROVED
+7. `placeOrder` finaliza (transition → addPayment → redirect)
+8. Si `saveCard` → guarda en `saved_payment_method` via `saveWompiPaymentMethod`
+
+#### NEQUI Flow
+1. User enters phone → tokenizes via `POST /v1/tokens/nequi` → polls until APPROVED
+2. Same flow as CARD: payment source → transaction → confirm → placeOrder
+3. Guarda automáticamente en saved methods después del pago exitoso
+
+#### DAVIPLATA Flow
+1. User enters document + phone → tokenizes via `POST /v1/tokens/daviplata` → OTP → poll
+2. Same payment source → transaction flow
+
+#### Manual Methods Flow (PSE, QR, Collect, BNPL, Su Plus)
+1. User selects method → sees confirmation button
+2. Creates transaction via `initWompiTransaction`
+3. Goes to `async_payment` step immediately
+4. Starts **polling** `getWompiTransactionStatus` each 2s
+5. Extra data appears via polling:
+   - PSE/BANCOLOMBIA_TRANSFER: `async_payment_url` → redirect button
+   - BANCOLOMBIA_QR: `qr_image` (base64) → QR display
+   - BANCOLOMBIA_COLLECT: `business_agreement_code` → codes display
+   - BNPL/DAVIPLATA/SU_PLUS: `url` → redirect button
+6. When APPROVED → `confirmWompiPayment` → `placeOrder`
+
+#### Saved Card Flow (Storefront)
+1. `SavedMethodSelector` shows saved CARD/NEQUI/DAVIPLATA
+2. User selects → choosed installments (for CARD)
+3. `initWompiSavedCardTransaction` with saved `paymentSourceId`
+4. If 3DS → polling → confirm → placeOrder
+
+### Saved Payment Methods (Storefront)
+- `saveWompiPaymentMethod` mutation → `SavedPaymentService.save()`
+- `savedPaymentMethods` query → `SavedPaymentService.findByCustomer()`
+- `deleteSavedPaymentMethod` / `setDefaultPaymentMethod` mutations
+
+### GraphQL Schema (`api/api-extensions.ts`)
+
+```graphql
+extend type Query {
+    GetPaymentSignature(amountInCents: Int!, paymentReference: String!): String!
+    getWompiTransactionStatus(transactionId: String!): WompiTransactionStatus!
+    savedPaymentMethods: [SavedPaymentMethod!]!
+}
+
+extend type Mutation {
+    initWompiTransaction(input: InitWompiTransactionInput!): WompiTransactionResult!
+    initWompiSavedCardTransaction(input: InitWompiSavedCardTransactionInput!): WompiTransactionResult!
+    createWompiPaymentSource(input: CreateWompiPaymentSourceInput!): WompiPaymentSourceResult!
+    confirmWompiPayment(input: ConfirmWompiPaymentInput!): ConfirmPaymentResult!
+    saveWompiPaymentMethod(input: SaveWompiPaymentMethodInput!): SavedPaymentMethod!
+    deleteSavedPaymentMethod(id: ID!): DeletePaymentMethodResult!
+    setDefaultPaymentMethod(id: ID!): SavedPaymentMethod
+}
+```
+
+---
+
+## 9. SuperadminvisibilityPlugin (`src/plugins/superadminvisibility/`)
 
 **Class:** `SuperadminvisibilityPlugin`
 **Dashboard:** `./dashboard/index.tsx`
@@ -371,7 +565,98 @@ Doble protección:
 
 ---
 
-## 9. Other Plugins
+## 10. Wompi API Flow & Payment Methods
+
+### Payment Methods Classification
+
+| Method | Type | Tokenization | Payment Source | Installments | Sandbox Notes |
+|--------|------|-------------|---------------|-------------|--------------|
+| **CARD** | Recurrent | `POST /v1/tokens/cards` | ✅ Required | ✅ 1-36 cuotas | `4242...` → APPROVED |
+| **NEQUI** | Recurrent | `POST /v1/tokens/nequi` + poll | ✅ Required | ❌ N/A | `3991111111` → APPROVED |
+| **DAVIPLATA** | Recurrent | `POST /v1/tokens/daviplata` + OTP + poll | ✅ Required | ❌ N/A | OTP `574829` → APPROVED |
+| **BANCOLOMBIA_TRANSFER** | Recurrent | `POST /v1/tokens/bancolombia_transfer` | ✅ Required | ❌ N/A | Sandbox redirect page |
+| **PSE** | Manual | ❌ No | ❌ No | ❌ N/A | `financial_institution_code: "1"` → APPROVED |
+| **BANCOLOMBIA_QR** | Manual | ❌ No | ❌ No | ❌ N/A | `sandbox_status: "APPROVED"` required |
+| **BANCOLOMBIA_COLLECT** | Manual | ❌ No | ❌ No | ❌ N/A | `sandbox_status: "APPROVED"` required |
+| **BANCOLOMBIA_BNPL** | Manual | ❌ No | ❌ No | ❌ N/A | Datos personales de prueba requeridos |
+| **SU_PLUS** | Manual | ❌ No | ❌ No | ❌ N/A | `user_legal_id` + `user_legal_id_type` |
+| **PCOL** | Manual | ❌ No | ❌ No | ❌ N/A | Puntos Colombia |
+
+### Correct Wompi API Flow
+
+```
+┌──────────────────────────────────────────────────────┐
+│ RECURRENT METHODS (CARD, NEQUI, DAVIPLATA, BCOL_TRANSF)│
+├──────────────────────────────────────────────────────┤
+│ 1. Frontend tokeniza via Wompi API (public key)      │
+│ 2. Backend: GET /merchants/{publicKey} → acceptance   │
+│ 3. Backend: POST /payment_sources (private key)      │
+│    → payment_source_id                                │
+│ 4. Backend: POST /transactions with payment_source_id │
+│    → transaction status                               │
+│ 5. Poll/Webhook until APPROVED                        │
+└──────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────┐
+│ MANUAL METHODS (PSE, QR, Collect, BNPL, Su Plus)      │
+├──────────────────────────────────────────────────────┤
+│ 1. Frontend: selecciona método + llena datos          │
+│ 2. Backend: POST /transactions directa                │
+│    → transaction PENDING                              │
+│ 3. Frontend: go to async_payment step                 │
+│ 4. Poll every 2s via getWompiTransactionStatus        │
+│ 5. Extra data appears (async_payment_url, qr_image)   │
+│ 6. User redirected/scans QR                           │
+│ 7. Poll until APPROVED                                 │
+│ 8. confirmWompiPayment → placeOrder                   │
+└──────────────────────────────────────────────────────┘
+```
+
+### 3DS with Payment Sources (CARD only)
+
+When creating a payment source for CARD, Wompi returns `status: "PENDING"` and a `three_ds_auth` object. Flow:
+
+1. **BrowserInfo**: Render HTML from `three_ds_method_data` to collect browser info
+2. **Fingerprint**: Device fingerprinting
+3. **Challenge**: User interaction (OTP, biometric, etc.)
+4. **Authentication**: Final approval
+5. Status becomes `AVAILABLE` → payment source ready to use
+
+---
+
+## 11. Saved Payment Methods
+
+**Entity:** `SavedPaymentMethod` in `saved_payment_method` table
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | int PK | Auto-increment |
+| `customer_id` | varchar | Vendure user ID as string |
+| `type` | varchar | `CARD`, `NEQUI`, `DAVIPLATA` |
+| `wompi_payment_source_id` | varchar UNIQUE | Wompi payment source ID |
+| `last_four` | varchar(4) | Last 4 digits of card or phone |
+| `brand` | varchar | `Visa`, `Mastercard`, `Nequi`, `Daviplata` |
+| `expiry_month` | varchar(2) | For CARD only |
+| `expiry_year` | varchar(2) | For CARD only |
+| `card_holder_name` | varchar | Card holder name or phone number |
+| `is_default` | boolean | First saved = default |
+| `channel_token` | varchar | Scoped to channel |
+
+**Where saved:**
+- **Storefront checkout:** `payment-step.tsx` `handleCardTokenized` / `handleNequiTokenized` / `handleDaviplataTokenized` → `saveWompiPaymentMethod()`
+- **Admin subscription:** `subscription.resolver.ts` `createSubscriptionWithPayment` → `SavedPaymentMethod` repository save
+- **Admin manual:** `AddPaymentMethodModal` → `savePaymentMethodForSubscription` mutation
+
+**Where displayed:**
+- **Storefront account:** `/payment-methods` page → `SavedPaymentMethodsQuery`
+- **Storefront checkout:** `SavedMethodSelector` → select a saved method
+- **Admin dashboard:** `SavedPaymentMethodsSection` → `mySavedPaymentMethods` query
+
+**Duplicate prevention:** `SavedPaymentService.save()` checks `wompiPaymentSourceId` before creating. If exists, returns existing record.
+
+---
+
+## 12. Other Plugins
 
 | Plugin | Class | What it does |
 |---|---|---|
@@ -381,7 +666,7 @@ Doble protección:
 | **DeliveryOrderPlugin** | `DeliveryOrderPlugin` | External delivery order creation & webhook status |
 | **DynamicShippingPricePlugin** | `DynamicShippingPricePlugin` | Dynamic shipping line price update |
 | **ExcelLoaderPlugin** | `ExcelLoaderPlugin` | Product import from .xlsx files |
-| **PaymentPlugin** | `PaymentPlugin` | Wompi payment handler + saved payment methods |
+| **PaymentPlugin** | `PaymentPlugin` | Wompi payment handler (checkout storefront) + saved payment methods |
 | **ProductVariantEnforcementPlugin** | `ProductVariantEnforcementPlugin` | Auto-disable products with no active variants |
 | **ReviewsPlugin** | `ReviewsPlugin` | Product reviews + AI summaries via GPT |
 | **ServientregaPlugin** | `ServientregaPlugin` | Colombian shipping carrier API |
@@ -391,6 +676,91 @@ Doble protección:
 | **FeedbackPlugin** | `FeedbackPlugin` | Google Forms iframe in dashboard |
 | **InvoiceClientPlugin** | `InvoiceClientPlugin` | External Matias invoicing microservice |
 | **CoinbasePlugin** | external | Crypto payments |
+
+---
+
+## 13. PayoutPlugin (`src/plugins/payout/`)
+
+**Class:** `PayoutPlugin.init({ platformFeePercent })`
+**Dashboard:** Routes `/payouts` (SuperAdmin), `/payout-settings` (seller)
+
+Manual CSV-based seller dispersions via Bancolombia LibreFormato. No API cost — SuperAdmin downloads CSV and executes transfers offline.
+
+### Entities
+
+| Entity | Table | Key Columns |
+|---|---|---|
+| `PayoutBatch` | `payout_batch` | `reference`, `periodStart`, `periodEnd`, `totalAmount`, `totalPlatformFee`, `transactionCount`, `successCount`, `skippedCount`, `status` (pending/csv_downloaded/paid/cancelled), `csvContent`, `csvFileName`, `paidAt` |
+| `PayoutTransaction` | `payout_transaction` | `sellerId`, `sellerName`, `channelToken`, `amount`, `platformFee`, `orderCodes`, `legalIdType`, `legalId`, `accountType`, `accountNumber`, `bankCode`, `brebKey`, `brebKeyType`, `status` (pending/paid/skipped) |
+
+### Seller Custom Fields (on `Seller` table)
+
+9 fields: `payoutLegalIdType`, `payoutLegalId`, `payoutAccountType`, `payoutAccountNumber`, `payoutBankCode`, `payoutBrebKey`, `payoutBrebKeyType`, `payoutBrebVerified`
+
+### Resolvers
+
+| Resolver | Role | Queries/Mutations |
+|---|---|---|
+| `PayoutResolver` | SuperAdmin | `payoutBatches`, `payoutBatch`, `pendingPayoutReport`, `createPayoutBatch`, `confirmPayoutBatch`, `cancelPayoutBatch`, `downloadPayoutCsv` |
+| `AdminPayoutResolver` | Seller (Authenticated) | `myPayoutInfo`, `saveMyPayoutInfo`, `myPayoutBatches` |
+
+### Seller Resolution Strategy
+
+The custom Clerk/Google auth does **not** populate `ctx.activeUserId` for seller admins. The `AdminPayoutResolver` resolves the seller via:
+1. `ctx.req?.headers?.['vendure-token']` — reads the channel token from the request header directly
+2. Fallback: `ctx.channel?.token`
+
+Then queries the `Channel` by token → `channel.sellerId` → `Seller`.
+
+### GraphQL Schema
+
+```graphql
+# SuperAdmin
+type Query {
+    payoutBatches: [PayoutBatch!]!
+    payoutBatch(id: ID!): PayoutBatch
+    pendingPayoutReport(periodStart: DateTime!, periodEnd: DateTime!): PendingPayoutReport!
+}
+type Mutation {
+    createPayoutBatch(input: CreatePayoutBatchInput!): PayoutBatch!
+    confirmPayoutBatch(id: ID!): PayoutBatch!
+    cancelPayoutBatch(id: ID!): PayoutBatch!
+    downloadPayoutCsv(id: ID!): String!
+}
+
+# Seller (self-service)
+type Query {
+    myPayoutInfo: SellerPayoutInfo!
+    myPayoutBatches: [PayoutBatch!]!
+}
+type Mutation {
+    saveMyPayoutInfo(input: SavePayoutInfoInput!): SellerPayoutInfo!
+}
+```
+
+### Dashboard Routes
+
+| Route | Page | Nav | Permission |
+|---|---|---|---|
+| `/payouts` | `PayoutListPage` | Settings → **Dispersiones** | SuperAdmin |
+| `/payouts/new` | `PayoutNewPage` | — | SuperAdmin |
+| `/payouts/$id` | `PayoutDetailPage` | — | SuperAdmin |
+| `/payout-settings` | `PayoutSettingsPage` | Settings → **Liquidaciones** | Authenticated (seller) |
+
+### Payout Flow
+
+1. **SuperAdmin** va a `/payouts/new`, selecciona fechas → preview
+2. Preview muestra: total sellers, total amount, fee, warning list de sellers sin datos bancarios
+3. **Crear lote** → lote en estado `pending`
+4. **Descargar CSV** → archivo Bancolombia LibreFormato
+5. SuperAdmin ejecuta transferencias manualmente offline
+6. **Confirmar pago** → lote pasa a `paid`
+
+### Reglas de negocio
+- `platformFeePercent: 7.9` — cubre ~6.9% estimado de Wompi + ~1% Ecommer
+- Orders tomadas en estado `PaymentSettled`
+- Cada 15 días, sin monto mínimo
+- Gratis a Bancolombia/Nequi, ~$1,200 COP a otros bancos
 
 ---
 
@@ -410,7 +780,7 @@ npx vite build --config vite.config.mts
 - **Post-html injection:** Custom `<title>`, default user settings (Spanish locale, CO currency), sticky header CSS, sidebar scroll fixes, responsive styles
 - **Vendure patches:** Channel switcher permission, payment form auto-code, shipping form defaults, SKU read-only auto-generate
 
-## Dashboard Extensions Summary (10 total)
+## Dashboard Extensions Summary (11 total)
 
 | Plugin | Routes | Nav | Widgets |
 |---|---|---|---|
@@ -424,6 +794,7 @@ npx vite build --config vite.config.mts
 | **StoresManagement** | `/stores`, `/stores/:id`, `/store-analytics` | Tiendas | — |
 | **WompiSubscription** | `/billing` | Settings | — |
 | **SellerSettingsVisibility** | — | Overrides settings nav permissions | — |
+| **Payout** | `/payouts`, `/payouts/new`, `/payouts/$id` (SuperAdmin)<br>`/payout-settings` (seller) | Settings → Dispersiones (SA)<br>Settings → Liquidaciones (seller) | — |
 
 ---
 
@@ -475,6 +846,91 @@ Administrator custom fields (`storeDescription`, `storePickupAddress`, etc.) are
 ### 10. Analytics Job does not auto-backfill
 
 The `AnalyticsJobService.computeDailySnapshot()` only processes yesterday. For historical data, use the `backfillStoreAnalytics` mutation (button in empty state of analytics page). The job uses `ON CONFLICT DO UPDATE` so it's safe to run multiple times.
+
+### 11. Wompi Payment Acceptance Tokens
+
+`acceptance_token` + `accept_personal_auth` son **OBLIGATORIOS** para:
+- Crear payment sources (`POST /v1/payment_sources`)
+- Crear transacciones directas (`POST /v1/transactions`) para métodos manuales (PSE, QR, etc.)
+
+Se obtienen via `GET /merchants/{publicKey}`. El backend siempre los obtiene frescos, nunca confiar en tokens cacheados.
+
+### 12. Sandbox status for QR/Collect
+
+En sandbox, `BANCOLOMBIA_QR` y `BANCOLOMBIA_COLLECT` REQUIEREN:
+```json
+{ "payment_method": { "sandbox_status": "APPROVED" } }
+```
+Sin este campo, la transacción queda PENDING para siempre. Se envía siempre (producción lo ignora).
+
+### 13. BNPL / Su Plus - Datos de prueba
+
+En sandbox, estos métodos requieren datos personales extra:
+- **BNPL:** `user_legal_id_type: 'CC'`, `user_legal_id`, `name`, `last_name`, `phone_code: '57'`, `phone_number`
+- **Su Plus:** `user_legal_id_type: 'CC'`, `user_legal_id: '1234567890'`
+
+El backend agrega defaults en sandbox. En producción, el frontend debe recolectarlos.
+
+### 14. Referencia de transacción
+
+Formato: `{orderCode}-{timestamp}`. Al confirmar pago, extraer orderCode:
+```typescript
+const orderCode = reference.lastIndexOf('-') > 0
+    ? reference.substring(0, reference.lastIndexOf('-'))
+    : reference;
+```
+
+### 15. ActiveUserId vs AdministratorId
+
+`ctx.activeUserId` retorna el **User ID** (tabla `user`), NO el Administrator ID (tabla `administrator`). Para buscar un Administrator:
+```typescript
+const adminRepo = connection.rawConnection.getRepository(Administrator);
+const admin = await adminRepo.findOne({
+    where: { user: { id: Number(ctx.activeUserId) } },
+    relations: ['user'],
+});
+```
+Aplica a consultas en `AdminSavedPaymentResolver`, `SubscriptionResolver`, etc.
+
+### 16. Transacciones con payment_source_id
+
+Cuando se usa `payment_source_id` en `POST /transactions`, el objeto `payment_method`:
+- Para CARD: SOLO `{ installments: N }` — NO incluir `type: 'CARD'` ni `is_three_ds`
+- Para NEQUI/DAVIPLATA/BANCOLOMBIA_TRANSFER: **omitir** `payment_method` completamente
+
+### 17. QR image es base64 simple
+
+Wompi retorna `qr_image` como string base64 SIN prefijo. Renderizar:
+```tsx
+<img src={`data:image/svg+xml;base64,${qrImage}`} alt="QR" />
+```
+
+### 18. Hooks en PaymentStep (admin)
+
+Siempre colocar TODOS los `useState` y `useEffect` al inicio del componente, ANTES de cualquier `if (condicion) return ...`. React requiere hooks en el mismo orden en cada render.
+
+### 19. Channel Token Header vs localStorage Key
+
+El header HTTP que envía el dashboard es **`vendure-token`** (configurado por `channelTokenKey` en Vendure), NO `vendure-selected-channel-token` que es solo el key de **localStorage**. Si necesitas leer el channel token directo del request raw, usa `ctx.req?.headers?.['vendure-token']`. Ver `AdminPayoutResolver.resolveSeller()` como ejemplo de esta estrategia cuando `ctx.activeUserId` no está disponible con auth custom.
+
+### 20. mjml v5 devuelve un Promise
+
+`mjml(input)` en v5 retorna **`Promise<{ html, errors, json }>`**, NO un objeto síncrono. `const { html } = mjml(...)` (sin `await`) da `html: undefined` → Resend responde `422 validation_error: Missing html or text field` y el email NUNCA se envía (aunque se loguee "enviado"). **Siempre `await mjml(...)`** y valida `html` no vacío. Aplica a `SellerVerificationEmailService`, `BillingEmailService` y `EnviaEmailService` (verificados los 3).
+
+### 21. TypeORM `DELETE` con alias falla
+
+`createQueryBuilder('alias').delete().where('alias.col = ...')` genera `DELETE FROM tabla WHERE alias.col = ...` sin alias en el FROM → `missing FROM-clause entry for table "alias"`. Usar criterio por propiedades: `repo.delete({ status, tokenExpiresAt: LessThan(now) })` (con `LessThan`/`MoreThan` de `typeorm`). Sin SQL crudo.
+
+### 22. Nombres de columna de `seller_email_verification`
+
+La entidad usa `@Column({ name: '...' })` con nombres **snake_case explícitos** (`token_hash`, `code_hash`, `token_expires_at`, `last_sent_at`, `administrator_id`, `shop_name`, …). `createdAt`/`updatedAt` quedan camelCase (default). Las migraciones y cualquier QueryBuilder deben usar esos nombres reales; con QueryBuilder usa `alias.property` (TypeORM mapea la propiedad a la columna). No referencies `"tokenExpiresAt"` entre comillas.
+
+### 23. Auto-login tras verificar el correo
+
+Para iniciar sesión desde una mutación `Public` (ej. `verifySellerEmail`):
+1. `const session = await sessionService.createNewAuthenticatedSession(ctx, user, NATIVE_AUTH_STRATEGY_NAME)` → devuelve `session.token`.
+2. En el resolver, inyecta `@Context('req')`/`@Context('res')` (igual que el `authenticate` de Vendure) y llama `setSessionToken({ sessionToken, rememberMe: false, authOptions, req, res })`.
+3. Devuelve `channelToken` en la respuesta para que el frontend guarde `vendure-selected-channel-token` (RAW, sin JSON.stringify).
 
 ---
 
@@ -542,3 +998,16 @@ Expone solo: `platform`, `username`, `dmLink`, `profileUrl`, `displayName`, `inP
 | 2026-06-29 | Add SellerSettingsVisibilityPlugin + block sellers nav + rebuild | `26dff17`, `c8d899a`, `328fdd3` |
 | 2026-07-01 | Full stores-management plugin: store listing with ListPage, analytics dashboard with Recharts, daily analytics job, investor metrics, backfill mutation, custom chart colors, restricted to SuperAdmin | `7ca8392`, `458a4c5`, `038e17d`, `cb6541e`, `f0e1c97`, `e0d876a`, `0d74e1f`, `1aab58a`, `56b2e5f`, `7b27aff`, `333a4f3`, `75be861`, `951f5ff` |
 | 2026-07-01 | Add useIsSuperAdmin hook + superadminvisibility dashboard extension; hide DeleteAccountSection from superadmin | `f7b3e51`, `9c0617a` |
+| 2026-07-22 | Wompi payment restructure: professional payment step with direct API, multi-method forms, saved cards, installments, manual method polling, real SVG logos | `a06fa45`, `47f9a18`, `6f41a61`, `9ceeb04` |
+| 2026-07-22 | Fix: CARD installments, saveCard logic removed, payment source flow, ENTITY_NOT_FOUND in admin, Nequi SVG | `a06fa45`, `47f9a18`, `6f41a61`, `9ceeb04` |
+| 2026-07-22 | AGENTS.md: comprehensive Wompi payment documentation added | — |
+| 2026-07-28 | PayoutPlugin: scaffold entities, services, resolvers, dashboard pages (list/new/detail/settings), platformFeePercent 10→7.9, admin-payout resolver with channel token header resolution for custom auth, nav titles: Dispersiones (SA) / Liquidaciones (seller), fix resolveSeller via ctx.req.headers['vendure-token'], add @Allow(Permission.Authenticated) | — |
+| 2026-07-28 | AGENTS.md: PayoutPlugin deep dive, Gotcha #19 (channel token header), Seller custom fields update | — |
+| 2026-08-18 | Product detail patch: viewMode (read-only view), product-images block (maxAssets 3), slug/description tooltips, Editar button, hasRequiredCreateValues validation, hide-description-images CSS (vite.config.mts) | — |
+| 2026-08-18 | Login plugin: server-side shop name blacklist (blacklist.ts FORBIDDEN_WORDS + assertValidShopName), Spanish error | — |
+| 2026-08-18 | Wompi subscription: create-time limits via ProductLimitResolver wrapper (createProduct/createProductVariants + guards), counts without hidden filter, guards in Spanish, REMOVE all auto-hide logic (ProductLimitEnforcementService deleted, 4 call-sites cleaned), impago notice pageBlock on profile, GRACE_PERIOD email (grace-period.hbs + sendGracePeriodNotice in updateSubscriptionStatus), fix stale email texts | — |
+| 2026-08-18 | Dashboard Manage Variants: productDetailWithVariantsDocument extended with featuredAsset+stockLevels, variants table gets Imagen/SKU/Stock columns (VendureImage preset tiny + StockLevelLabel) via vite.config.mts | — |
+| 2026-08-18 | AGENTS.md: WompiSubscriptionPlugin deep dive update (no auto-hide, ProductLimitResolver, SubscriptionAlertSection, grace-period email), session log | — |
+| 2026-09-05 | Registro diferido (Double Opt-In): entidad `seller_email_verification` (staged), registerSellerWithEmail → createPending, verifyByToken/verifyByCode crean cuenta + auto-login (SessionService + setSessionToken + channelToken), SellerNativeAdminAuthenticationStrategy bloquea login sin verificar, recycle de cuentas legacy (guardas superadmin/PENDING), script delete-unverified-seller.ts (TypeORM, --list), fix mjml v5 (await) en 3 servicios de email, re-registro tras eliminar cuenta, purga diaria de pendientes | `a542728`, `e4a284a` |
+| 2026-09-05 | Wizard de registro 3 pasos reordenado (método → datos de acceso → tienda+confirmar), progreso dinámico (Google 2 pasos), VerifySellerEmailPage sin pedir correo para el código, email-validation en tiempo real, copy suave en paso 3 | `e4a284a` |
+| 2026-09-05 | AGENTS.md: LoginPlugin deep dive (registro tradicional staged, servicios de verificación, wizard, entidad seller_email_verification), gotchas #20-23 (mjml Promise, DELETE alias, snake_case columns, auto-login), session log | — |

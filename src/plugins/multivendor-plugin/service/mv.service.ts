@@ -20,7 +20,7 @@ import {
     User,
 } from '@vendure/core';
 
-import { MESSENGER_DOMIS_SHIPPING_METHOD_CODE } from '../constants';
+import { ENVIA_SHIPPING_METHOD_CODE, MESSENGER_DOMIS_SHIPPING_METHOD_CODE } from '../constants';
 import { CreateSellerInput } from '../types';
 
 @Injectable()
@@ -42,6 +42,7 @@ export class MultivendorService {
         await this.createSellerStockLocation(superAdminCtx, input.shopName, channel);
         await this.removeNonMessengerShippingMethodsFromChannel(superAdminCtx, channel);
         await this.assignMessengerShippingMethodToChannel(superAdminCtx, channel);
+        await this.assignEnviaShippingMethodToChannel(superAdminCtx, channel);
         return channel;
     }
 
@@ -62,6 +63,9 @@ export class MultivendorService {
             .where('shippingMethod.code != :messengerCode', {
                 messengerCode: MESSENGER_DOMIS_SHIPPING_METHOD_CODE,
             })
+            .andWhere('shippingMethod.code != :enviaCode', {
+                enviaCode: ENVIA_SHIPPING_METHOD_CODE,
+            })
             .getMany();
 
         for (const shippingMethod of shippingMethods) {
@@ -80,6 +84,31 @@ export class MultivendorService {
         if (!shippingMethod) {
             Logger.warn(
                 `Shipping method ${MESSENGER_DOMIS_SHIPPING_METHOD_CODE} was not found for seller channel ${sellerChannel.code}`,
+                'MultivendorService',
+            );
+            return;
+        }
+
+        const alreadyAssigned = (shippingMethod.channels ?? []).some(
+            channel => String(channel.id) === String(sellerChannel.id),
+        );
+
+        if (!alreadyAssigned) {
+            await this.channelService.assignToChannels(ctx, ShippingMethod, shippingMethod.id, [sellerChannel.id]);
+        }
+    }
+
+    private async assignEnviaShippingMethodToChannel(ctx: RequestContext, sellerChannel: Channel) {
+        const shippingMethod = await this.connection.rawConnection.getRepository(ShippingMethod).findOne({
+            where: {
+                code: ENVIA_SHIPPING_METHOD_CODE,
+            },
+            relations: ['channels'],
+        });
+
+        if (!shippingMethod) {
+            Logger.warn(
+                `Shipping method ${ENVIA_SHIPPING_METHOD_CODE} was not found for seller channel ${sellerChannel.code}`,
                 'MultivendorService',
             );
             return;

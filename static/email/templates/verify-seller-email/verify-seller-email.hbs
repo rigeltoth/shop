@@ -1,0 +1,51 @@
+{{> header title="Verifica tu correo - Ecommer" }}
+
+<mj-section padding="20px">
+  <mj-column background-color="#ffffff" padding="30px" border-radius="12px">
+
+    <mj-text font-size="20px" font-weight="bold" color="#12123F">
+      Confirma tu correo electrónico
+    </mj-text>
+
+    <mj-text>
+      Hola, para activar tu tienda en Ecommer haz clic en el botón de abajo. El enlace expira en 24 horas.
+    </mj-text>
+
+    <mj-button
+      background-color="#12123F"
+      color="#ffffff"
+      border-radius="24px"
+      font-size="16px"
+      padding="20px 0"
+      href="{{verifyUrl}}">
+      Verificar mi correo
+    </mj-button>
+
+    <mj-text font-size="13px" color="#666666">
+      ¿No funciona el botón? Copia y pega este enlace en tu navegador:
+    </mj-text>
+    <mj-text font-size="13px" color="#666666">
+      <a href="{{verifyUrl}}" style="color: #12123F; word-break: break-all;">{{verifyUrl}}</a>
+    </mj-text>
+
+    <mj-text font-size="13px" color="#666666" align="center">
+      o ingresa este código de verificación:
+    </mj-text>
+    <mj-text
+      align="center"
+      font-size="28px"
+      font-weight="bold"
+      color="#12123F"
+      letter-spacing="6px"
+      padding="8px">
+      {{code}}
+    </mj-text>
+
+    <mj-text font-size="12px" color="#999999" align="center">
+      Si no creaste una tienda en Ecommer, ignora este correo.
+    </mj-text>
+
+  </mj-column>
+</mj-section>
+
+{{> footer }}

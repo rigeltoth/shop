@@ -6,8 +6,8 @@ import { CustomerSubscription, SubscriptionStatus } from '../entities/customer-s
 import { Plan, BillingInterval } from '../entities/plan.entity';
 import { WompiService } from './wompi.service';
 import { PlanManagementService } from './plan-management.service';
-import { ProductLimitEnforcementService } from './product-limit-enforcement.service';
-import { FEATURE_CODES } from '../constants';
+import { SubscriptionQueryService } from './subscription-query.service';
+import { BillingEmailService } from './billing-email.service';
 import { calculateEndDate } from './utils/date-utils';
 
 @Injectable()
@@ -17,7 +17,8 @@ export class SubscriptionLifecycleService {
         @InjectRepository(Plan) private planRepository: Repository<Plan>,
         private wompiService: WompiService,
         private planManagementService: PlanManagementService,
-        private productLimitEnforcementService: ProductLimitEnforcementService,
+        private subscriptionQueryService: SubscriptionQueryService,
+        private billingEmailService: BillingEmailService,
     ) { }
 
     async updateSubscriptionStatus(subscriptionId: number, status: SubscriptionStatus): Promise<CustomerSubscription> {
@@ -35,7 +36,19 @@ export class SubscriptionLifecycleService {
             subscription.endsAt = calculateEndDate(subscription.plan?.billingInterval || BillingInterval.MONTHLY);
         }
 
-        return this.subscriptionRepository.save(subscription);
+        const saved = await this.subscriptionRepository.save(subscription);
+
+        if (status === SubscriptionStatus.GRACE_PERIOD) {
+            const adminEmail = await this.subscriptionQueryService.getAdministratorEmail(subscription.administratorId);
+            if (adminEmail) {
+                await this.billingEmailService.sendGracePeriodNotice(
+                    adminEmail,
+                    subscription.plan?.name ?? 'Unknown',
+                );
+            }
+        }
+
+        return saved;
     }
 
     async extendSubscription(subscriptionId: number): Promise<CustomerSubscription> {
@@ -105,14 +118,6 @@ export class SubscriptionLifecycleService {
         subscription.lastPaymentAt = null as any;
 
         const saved = await this.subscriptionRepository.save(subscription);
-
-        const productLimitValue = await this.getFeatureValue(administratorId, FEATURE_CODES.MAX_PRODUCTS);
-        const productLimit = productLimitValue ? parseInt(productLimitValue, 10) : 15;
-        await this.productLimitEnforcementService.hideExcessProducts(administratorId, productLimit);
-
-        const variantLimitValue = await this.getFeatureValue(administratorId, FEATURE_CODES.MAX_VARIATIONS);
-        const variantLimit = variantLimitValue ? parseInt(variantLimitValue, 10) : 0;
-        await this.productLimitEnforcementService.hideExcessVariants(administratorId, variantLimit);
 
         Logger.info(`Subscription ${subscriptionId} reverted to Free plan for administrator ${administratorId}`, 'SubscriptionLifecycleService');
         return saved;

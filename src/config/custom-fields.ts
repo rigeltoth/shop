@@ -1,5 +1,5 @@
 import type { VendureConfig } from '@vendure/core';
-import { Asset, LanguageCode } from '@vendure/core';
+import { Asset, LanguageCode, Permission } from '@vendure/core';
 
 /**
  * Custom fields para ProductVariant (peso y dimensiones).
@@ -312,6 +312,210 @@ export const customFields: VendureConfig['customFields'] = {
         },
       ],
     },
+    {
+      name: 'storePickupPostalCode',
+      type: 'string',
+      nullable: true,
+      public: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Pickup postal code' },
+        { languageCode: LanguageCode.es, value: 'Código postal de recogida' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Store pickup postal code used as delivery origin',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'Código postal de la tienda usado como origen del domicilio',
+        },
+      ],
+    },
+    {
+      name: 'pickupTimeFrom',
+      type: 'int',
+      nullable: true,
+      public: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Pickup window start hour' },
+        { languageCode: LanguageCode.es, value: 'Hora de inicio de la ventana de recolección' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Preferred pickup window start hour (0-23)',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'Hora de inicio preferida de la ventana de recolección (0-23)',
+        },
+      ],
+    },
+    {
+      name: 'pickupTimeTo',
+      type: 'int',
+      nullable: true,
+      public: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Pickup window end hour' },
+        { languageCode: LanguageCode.es, value: 'Hora de fin de la ventana de recolección' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Preferred pickup window end hour (0-23)',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'Hora de fin preferida de la ventana de recolección (0-23)',
+        },
+      ],
+    },
+  ],
+  Fulfillment: [
+    {
+      name: 'enviaPickupNumber',
+      type: 'string',
+      nullable: true,
+      public: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Pickup number' },
+        { languageCode: LanguageCode.es, value: 'Número de recolección' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Envia pickup confirmation number',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'Número de confirmación de recolección de Envia',
+        },
+      ],
+    },
+    {
+      name: 'enviaPickupDate',
+      type: 'string',
+      nullable: true,
+      public: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Pickup date' },
+        { languageCode: LanguageCode.es, value: 'Fecha de recolección' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Envia scheduled pickup date (YYYY-MM-DD)',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'Fecha agendada de recolección de Envia (YYYY-MM-DD)',
+        },
+      ],
+    },
+    {
+      name: 'enviaPickupTimeFrom',
+      type: 'int',
+      nullable: true,
+      public: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Pickup window start' },
+        { languageCode: LanguageCode.es, value: 'Inicio de ventana de recolección' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Envia pickup time window start hour',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'Hora de inicio de la ventana de recolección de Envia',
+        },
+      ],
+    },
+    {
+      name: 'enviaPickupTimeTo',
+      type: 'int',
+      nullable: true,
+      public: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Pickup window end' },
+        { languageCode: LanguageCode.es, value: 'Fin de ventana de recolección' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Envia pickup time window end hour',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'Hora de fin de la ventana de recolección de Envia',
+        },
+      ],
+    },
+    {
+      name: 'enviaPickupFee',
+      type: 'float',
+      nullable: true,
+      public: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Pickup fee' },
+        { languageCode: LanguageCode.es, value: 'Costo de recolección' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Envia pickup fee cost',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'Costo de la recolección de Envia',
+        },
+      ],
+    },
+    {
+      name: 'enviaLabelUrl',
+      type: 'string',
+      nullable: true,
+      public: true,
+      ui: { component: 'ecommer-envia-label-url' },
+      label: [
+        { languageCode: LanguageCode.en, value: 'Label URL' },
+        { languageCode: LanguageCode.es, value: 'URL de la guía' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Envia shipping label PDF URL',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'URL del PDF de la guía de envío de Envia',
+        },
+      ],
+    },
+    {
+      name: 'enviaTrackUrl',
+      type: 'string',
+      nullable: true,
+      public: true,
+      ui: { component: 'ecommer-envia-track-url' },
+      label: [
+        { languageCode: LanguageCode.en, value: 'Tracking URL' },
+        { languageCode: LanguageCode.es, value: 'URL de rastreo' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.en,
+          value: 'Envia shipment tracking URL',
+        },
+        {
+          languageCode: LanguageCode.es,
+          value: 'URL de rastreo del envío de Envia',
+        },
+      ],
+    },
   ],
   Customer: [
     {
@@ -460,20 +664,130 @@ export const customFields: VendureConfig['customFields'] = {
         { languageCode: LanguageCode.es, value: 'Redes sociales' },
       ],
       description: [
-        {
-          languageCode: LanguageCode.en,
-          value: 'Seller social media links (WhatsApp, Facebook, Instagram)',
-        },
-        {
-          languageCode: LanguageCode.es,
-          value: 'Redes sociales vinculadas del vendedor (WhatsApp, Facebook, Instagram)',
-        },
+        { languageCode: LanguageCode.en, value: 'Seller social media links (WhatsApp, Facebook, Instagram)' },
+        { languageCode: LanguageCode.es, value: 'Redes sociales vinculadas del vendedor (WhatsApp, Facebook, Instagram)' },
+      ],
+    },
+    {
+      name: 'payoutLegalIdType',
+      type: 'string',
+      nullable: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'ID Type (payout)' },
+        { languageCode: LanguageCode.es, value: 'Tipo de documento (pago)' },
+      ],
+      description: [
+        { languageCode: LanguageCode.es, value: 'Tipo de documento para recibir pagos: CC, NIT, CE' },
+      ],
+    },
+    {
+      name: 'payoutLegalId',
+      type: 'string',
+      nullable: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'ID Number (payout)' },
+        { languageCode: LanguageCode.es, value: 'Número de documento (pago)' },
+      ],
+      description: [
+        { languageCode: LanguageCode.es, value: 'Número de documento para recibir pagos' },
+      ],
+    },
+    {
+      name: 'payoutAccountType',
+      type: 'string',
+      nullable: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Account Type (payout)' },
+        { languageCode: LanguageCode.es, value: 'Tipo de cuenta (pago)' },
+      ],
+      description: [
+        { languageCode: LanguageCode.es, value: 'Tipo de cuenta: AHORROS o CORRIENTE' },
+      ],
+    },
+    {
+      name: 'payoutAccountNumber',
+      type: 'string',
+      nullable: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Account Number (payout)' },
+        { languageCode: LanguageCode.es, value: 'Número de cuenta (pago)' },
+      ],
+      description: [
+        { languageCode: LanguageCode.es, value: 'Número de cuenta bancaria para recibir pagos' },
+      ],
+    },
+    {
+      name: 'payoutBankCode',
+      type: 'string',
+      nullable: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'Bank Code (payout)' },
+        { languageCode: LanguageCode.es, value: 'Código del banco (pago)' },
+      ],
+      description: [
+        { languageCode: LanguageCode.es, value: 'Código de la entidad financiera (001=Bancolombia, 051=Davivienda)' },
+      ],
+    },
+    {
+      name: 'payoutBrebKey',
+      type: 'string',
+      nullable: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'BRE-B Key' },
+        { languageCode: LanguageCode.es, value: 'Llave BRE-B' },
+      ],
+      description: [
+        { languageCode: LanguageCode.es, value: 'Llave BRE-B para recibir pagos (email, teléfono o @alias)' },
+      ],
+    },
+    {
+      name: 'payoutBrebKeyType',
+      type: 'string',
+      nullable: true,
+      label: [
+        { languageCode: LanguageCode.en, value: 'BRE-B Key Type' },
+        { languageCode: LanguageCode.es, value: 'Tipo de llave BRE-B' },
+      ],
+      description: [
+        { languageCode: LanguageCode.es, value: 'Tipo: MAIL, PHONE, ALPHANUMERIC' },
+      ],
+    },
+    {
+      name: 'payoutBrebVerified',
+      type: 'boolean',
+      defaultValue: false,
+      label: [
+        { languageCode: LanguageCode.en, value: 'BRE-B Verified' },
+        { languageCode: LanguageCode.es, value: 'BRE-B Verificado' },
+      ],
+      description: [
+        { languageCode: LanguageCode.es, value: 'Si la llave BRE-B ha sido verificada' },
       ],
     },
   ],
   Channel: [
     { name: 'invoiceBillingActive', type: 'boolean', defaultValue: false },
     { name: 'invoiceLimitRemaining', type: 'int', nullable: true },
+    {
+      name: 'ownDeliveryEnabled',
+      type: 'boolean',
+      defaultValue: false,
+      public: true,
+      label: [
+        { languageCode: LanguageCode.es, value: 'Domicilio con el vendedor' },
+        { languageCode: LanguageCode.en, value: 'Seller delivery' },
+      ],
+      description: [
+        {
+          languageCode: LanguageCode.es,
+          value: 'El vendedor coordina la entrega y cobra el domicilio en el lugar de destino.',
+        },
+        {
+          languageCode: LanguageCode.en,
+          value: 'The seller coordinates delivery and charges at the destination.',
+        },
+      ],
+    },
     {
       name: 'matiasCompanyId',
       type: 'string',
@@ -690,6 +1004,18 @@ export const customFields: VendureConfig['customFields'] = {
         },
       ],
     },
+    {
+      name: 'invoiceLastFailedAt',
+      type: 'datetime',
+      nullable: true,
+      public: false,
+      description: [
+        {
+          languageCode: LanguageCode.es,
+          value: 'Fecha/hora (UTC) del último fallo al emitir factura electrónica',
+        },
+      ],
+    },
   ],
   PaymentMethod: [
     {
@@ -753,6 +1079,7 @@ export const customFields: VendureConfig['customFields'] = {
       name: 'bankCertificationVerified',
       type: 'boolean',
       defaultValue: false,
+      requiresPermission: Permission.SuperAdmin,
       label: [
         { languageCode: LanguageCode.en, value: 'Bank certification verified' },
         { languageCode: LanguageCode.es, value: 'Certificacion bancaria verificada' },
@@ -760,11 +1087,13 @@ export const customFields: VendureConfig['customFields'] = {
       description: [
         {
           languageCode: LanguageCode.en,
-          value: 'Whether the uploaded bank certification has been verified',
+          value:
+            'Only SuperAdmin can mark bank certification as verified. It resets automatically when bank details change.',
         },
         {
           languageCode: LanguageCode.es,
-          value: 'Indica si la certificacion bancaria cargada fue verificada',
+          value:
+            'Solo SuperAdmin puede marcar la certificacion bancaria como verificada. Se desactiva automaticamente si cambian los datos bancarios.',
         },
       ],
     },

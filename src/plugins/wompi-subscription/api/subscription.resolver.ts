@@ -10,6 +10,7 @@ import { WompiService } from '../services/wompi.service';
 import { FEATURE_CODES } from '../constants';
 import { PAYMENT_METHOD_FLOW, PaymentFlowType } from '../payment-methods';
 import { SavedPaymentMethod } from '../../payment/entities/saved-payment-method.entity';
+import { saveSavedPaymentMethod } from '../../payment/services/saved-payment.service';
 
 @Injectable()
 @Resolver()
@@ -203,12 +204,14 @@ export class SubscriptionResolver {
         if (lastFour && brand) {
             try {
                 const savedRepo = this.connection.rawConnection.getRepository(SavedPaymentMethod);
+                const customerId = ctx.activeUserId?.toString() || administratorId.toString();
+
                 const existingCount = await savedRepo.count({
-                    where: { customerId: administratorId.toString() },
+                    where: { customerId },
                 });
 
-                const saved = savedRepo.create({
-                    customerId: ctx.activeUserId?.toString() || administratorId.toString(),
+                await saveSavedPaymentMethod(savedRepo, {
+                    customerId,
                     type: paymentMethod,
                     wompiPaymentSourceId: paymentSource.id,
                     lastFour,
@@ -216,10 +219,9 @@ export class SubscriptionResolver {
                     expiryMonth: expiryMonth || '',
                     expiryYear: expiryYear || '',
                     cardHolderName,
-                    isDefault: existingCount === 0,
                     channelToken: ctx.channel?.token || '',
-                });
-                await savedRepo.save(saved);
+                }, existingCount === 0);
+
                 Logger.debug(`Saved payment method for administrator ${administratorId}`, 'SubscriptionResolver');
             } catch (saveError) {
                 Logger.warn(`Failed to save payment method: ${saveError}`, 'SubscriptionResolver');

@@ -348,6 +348,12 @@ export const RESTRICTED_COMMAND_IDS = [
     'store-management',
     'store-analytics',
     'shipping-methods',
+    'tax-categories',
+    'tax-rates',
+    'job-queue',
+    'scheduled-tasks',
+    'settings-store',
+    'api-keys',
 ];
 
 export function getCommandsBySection(): Record<string, Command[]> {

@@ -15,6 +15,7 @@ import { PaymentController } from './api/payment.controller';
 import { PaymentPaymentHandler } from './payment-method-handler';
 import { SavedPaymentMethod } from './entities/saved-payment-method.entity';
 import { ProcessedWebhookEvent } from './entities/processed-webhook-event.entity';
+import { BankCertificationVerificationSubscriber } from './subscribers/bank-certification-verification.subscriber';
 
 @VendurePlugin({
 imports: [
@@ -30,6 +31,7 @@ imports: [
         WompiCheckoutService,
         SavedPaymentService,
         RateLimitService,
+        BankCertificationVerificationSubscriber,
     ],
     configuration: config => {
         config.paymentOptions.paymentMethodHandlers.push(

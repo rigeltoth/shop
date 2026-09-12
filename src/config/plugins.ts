@@ -10,9 +10,11 @@ import {
 
 import { GraphiqlPlugin } from '@vendure/graphiql-plugin';
 import {
-  defaultEmailHandlers,
+  emailAddressChangeHandler,
+  emailVerificationHandler,
   EmailPlugin,
   FileBasedTemplateLoader,
+  passwordResetHandler,
 } from '@vendure/email-plugin';
 import {
   AssetServerPlugin,
@@ -30,6 +32,7 @@ import { ServientregaPlugin } from '../plugins/servientrega/servientrega.plugin'
 import { SalesReportPlugin } from '../plugins/sales-report/sales-report.plugin';
 import { InvoiceClientPlugin } from '../plugins/invoice-client/invoice-client.plugin';
 import { ResendEmailSender } from './mail/resend-email-sender';
+import { orderConfirmationHandler } from './mail/order-confirmation.handler';
 import {
   IS_DEV,
   staticDir,
@@ -47,6 +50,7 @@ import { FeedbackPlugin } from '../plugins/feedback/feedback.plugin';
 import { StorePagePlugin } from '../plugins/store-page/store-page.plugin';
 import { AutoSkuPlugin } from '../plugins/auto-sku/auto-sku.plugin';
 import { ProductVariantEnforcementPlugin } from '../plugins/product-variant-enforcement/product-variant-enforcement.plugin';
+import { ProductContentValidationPlugin } from '../plugins/product-content-validation/product-content-validation.plugin';
 import {
   DeliveryCostPlugin,
   MessengerDomisDeliveryCostStrategy,
@@ -56,6 +60,7 @@ import {
   MessengerDomisDeliveryOrderStrategy,
 } from '../plugins/delivery-order';
 import { SuperadminvisibilityPlugin } from '../plugins/superadminvisibility/superadminvisibility.plugin';
+import { BlogPlugin } from '../plugins/blog/blog.plugin';
 import { WompiSubscriptionPlugin } from '../plugins/wompi-subscription/wompi-subscription.plugin';
 import { DynamicShippingPricePlugin } from '../plugins/dynamic-shipping-price';
 import { MetricsApiPlugin } from '../plugins/metrics-api/metrics-api.plugin';
@@ -67,6 +72,7 @@ import { EnviaShippingPlugin } from '../plugins/envia-shipping';
 import { ChannelStockLocationPlugin } from '../plugins/channel-stock-location/channel-stock-location.plugin';
 import { SellerUxPlugin } from '../plugins/seller-ux/seller-ux.plugin';
 import { TranslationsPlugin } from '../plugins/translations/translations.plugin';
+import { PayoutPlugin } from '../plugins/payout/payout.plugin';
 
 const assetServerPlugin = AssetServerPlugin.init({
   route: ROUTE.Assets,
@@ -100,7 +106,12 @@ const emailPlugin = EmailPlugin.init({
   emailSender: new ResendEmailSender(process.env.RESEND_API_KEY),
 
   route: ROUTE.Mailbox,
-  handlers: [...defaultEmailHandlers],
+  handlers: [
+    orderConfirmationHandler,
+    emailVerificationHandler,
+    passwordResetHandler,
+    emailAddressChangeHandler,
+  ],
   templateLoader: new FileBasedTemplateLoader(emailTemplatePath),
   globalTemplateVars: {
     fromAddress: '"EcommerShop" <ceo@ecommer.shop>',
@@ -115,7 +126,7 @@ export const plugins: VendureConfig['plugins'] = [
   AutoSkuPlugin,
   TranslationsPlugin,
   MultivendorPlugin.init({
-    platformFeePercent: 10,
+    platformFeePercent: 7.9,
     platformFeeSKU: "FEE"
   }),
 
@@ -160,7 +171,20 @@ export const plugins: VendureConfig['plugins'] = [
 
   SafeShippingPlugin,
 
-  EnviaShippingPlugin.init({}),
+  EnviaShippingPlugin.init({
+    originAddress: {
+      name: 'Tienda Ecommer',
+      company: 'Ecommer',
+      phone: '+57 3001234567',
+      email: 'test@ecommer.shop',
+      street: 'Calle 5',
+      number: '10-20',
+      city: '19001000',
+      state: 'CAU',
+      country: 'CO',
+      postalCode: '19001000',
+    },
+  }),
 
   PaymentPlugin.init({
     secretKey: process.env.WOMPI_INTEGRITY_SECRET || process.env.PAYMENT_SECRET_KEY,
@@ -195,6 +219,7 @@ export const plugins: VendureConfig['plugins'] = [
   }),
 
   ProductVariantEnforcementPlugin,
+  ProductContentValidationPlugin,
   SuperadminvisibilityPlugin,
 
   StoresManagementPlugin.init({}),
@@ -207,6 +232,8 @@ export const plugins: VendureConfig['plugins'] = [
 
   SellerUxPlugin,
 
+  BlogPlugin.init({}),
+
   WompiSubscriptionPlugin.init({
     wompiApiUrl: process.env.WOMPI_API_URL || 'https://sandbox.wompi.co/v1',
     wompiApiKey: process.env.WOMPI_API_KEY || process.env.PAYMENT_PRIVATE_KEY || '',
@@ -216,6 +243,15 @@ export const plugins: VendureConfig['plugins'] = [
     currency: process.env.WOMPI_CURRENCY || 'COP',
     wompiPublicKey:
       process.env.WOMPI_PUBLIC_KEY || process.env.PAYMENT_PUBLIC_KEY || '',
+  }),
+
+  PayoutPlugin.init({
+    platformFeePercent: 7.9,
+    wompiFeePercent: 6.9,
+    ecommerFeePercent: 1.0,
+    companyNit: process.env.PAYOUT_COMPANY_NIT || '',
+    companyAccount: process.env.PAYOUT_COMPANY_ACCOUNT || '',
+    companyAccountType: (process.env.PAYOUT_COMPANY_ACCOUNT_TYPE || 'AHORROS') as 'AHORROS' | 'CORRIENTE',
   }),
 
   MetricsApiPlugin,

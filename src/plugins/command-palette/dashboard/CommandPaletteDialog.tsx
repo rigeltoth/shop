@@ -32,13 +32,30 @@ export function CommandPaletteDialog({ open, onClose }: Props) {
     const navigate = useNavigate();
     const isMobile = useIsMobile();
 
-    const isSuperAdmin = useIsSuperAdmin() === true;
+    const isSuperAdmin = useIsSuperAdmin();
+    const [isDefaultChannel, setIsDefaultChannel] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        fetch('/admin-api', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                query: `query { activeChannel { seller { id } } }`,
+            }),
+        })
+            .then(r => r.json())
+            .then(json => setIsDefaultChannel(!json?.data?.activeChannel?.seller))
+            .catch(() => setIsDefaultChannel(false));
+    }, []);
+
+    const showRestricted = isSuperAdmin === true && isDefaultChannel === true;
 
     const availableCommands = useMemo(() =>
         ALL_COMMANDS.filter(cmd =>
-            RESTRICTED_COMMAND_IDS.includes(cmd.id) ? isSuperAdmin : true,
+            RESTRICTED_COMMAND_IDS.includes(cmd.id) ? showRestricted : true,
         ),
-    [isSuperAdmin]);
+    [showRestricted]);
 
     const recentIds = useMemo(() => {
         if (!open) return [];

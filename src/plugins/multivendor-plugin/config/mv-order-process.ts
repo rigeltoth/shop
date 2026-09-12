@@ -161,6 +161,7 @@ async function hasGlobalShippingLine(ctx: RequestContext, order: Order): Promise
 
         return (
             checkerCode === 'default-shipping-eligibility-checker' ||
+            checkerCode === 'envia-shipping-eligibility-checker' ||
             sellerChannels.length !== 1
         );
     });

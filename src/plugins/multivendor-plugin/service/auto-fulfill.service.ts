@@ -20,6 +20,8 @@ export class AutoFulfillService implements OnModuleInit {
         private connection: TransactionalConnection,
     ) { }
 
+    private readonly inFlightOrderIds = new Set<string>();
+
     onModuleInit() {
         this.eventBus.ofType(PaymentStateTransitionEvent).subscribe(async event => {
     if(event.toState !== 'Settled') {
@@ -77,12 +79,20 @@ try {
     }
 
     private async fulfillOrder(ctx: any, order: Order): Promise < void> {
+    const orderIdStr = String(order.id);
+    if (this.inFlightOrderIds.has(orderIdStr)) {
+        Logger.info(`AutoFulfill: Order ${order.code} ya está siendo procesada, omitiendo fulfillment duplicado`, loggerCtx);
+        return;
+    }
+    this.inFlightOrderIds.add(orderIdStr);
+
+    try {
     // Cargar la orden con líneas y sus fulfillments actuales
     const orderWithLines = await this.connection
         .getRepository(ctx, Order)
         .findOne({
             where: { id: order.id as any },
-            relations: ['lines', 'fulfillments', 'fulfillments.lines'],
+            relations: ['lines', 'fulfillments', 'fulfillments.lines', 'shippingLines', 'shippingLines.shippingMethod'],
         });
 
     if(!orderWithLines) return;
@@ -112,11 +122,69 @@ Logger.info(
     loggerCtx,
 );
 
-const result = await this.orderService.createFulfillment(ctx, {
-    handler: {
+let shippingMethod = (orderWithLines as any).shippingLines?.[0]?.shippingMethod;
+
+if (!shippingMethod) {
+    try {
+        const aggregateOrder = await this.orderService.getAggregateOrder(ctx, order);
+        if (aggregateOrder) {
+            const aggregateWithShipping = await this.connection
+                .getRepository(ctx, Order)
+                .findOne({
+                    where: { id: aggregateOrder.id as any },
+                    relations: ['shippingLines', 'shippingLines.shippingMethod'],
+                });
+            shippingMethod = (aggregateWithShipping as any)?.shippingLines?.[0]?.shippingMethod;
+        }
+    } catch (err) {
+        Logger.warn(
+            `AutoFulfill: Could not resolve aggregate order shipping method for seller order ${order.code}, fallback a manual`,
+            loggerCtx,
+        );
+    }
+}
+
+const fulfillmentHandlerCode = shippingMethod?.fulfillmentHandlerCode;
+
+let handler: { code: string; arguments: { name: string; value: string }[] };
+if (fulfillmentHandlerCode === 'envia-fulfillment-handler' && shippingMethod) {
+    const calculatorArgs: { name: string; value: string }[] =
+        (shippingMethod as any).calculator?.args ?? [];
+    const carrier = calculatorArgs.find(a => a.name === 'carrier')?.value || '';
+    const service = calculatorArgs.find(a => a.name === 'service')?.value || '';
+    if (carrier && service) {
+        handler = {
+            code: 'envia-fulfillment-handler',
+            arguments: [
+                { name: 'carrier', value: carrier },
+                { name: 'service', value: service },
+            ],
+        };
+    } else {
+        Logger.warn(
+            `AutoFulfill: Envia handler detectado para Order ${order.code} pero sin carrier/service en calculator args, fallback a manual`,
+            loggerCtx,
+        );
+        handler = {
+            code: manualFulfillmentHandler.code,
+            arguments: [{ name: 'method', value: 'Auto' }],
+        };
+    }
+} else {
+    if (fulfillmentHandlerCode && fulfillmentHandlerCode !== 'manual-fulfillment') {
+        Logger.warn(
+            `AutoFulfill: Shipping method fulfillment handler "${fulfillmentHandlerCode}" no soportado, usando manual para Order ${order.code}`,
+            loggerCtx,
+        );
+    }
+    handler = {
         code: manualFulfillmentHandler.code,
         arguments: [{ name: 'method', value: 'Auto' }],
-    },
+    };
+}
+
+const result = await this.orderService.createFulfillment(ctx, {
+    handler,
     lines: linesToFulfill.map(({ line, remaining }) => ({
         orderLineId: line.id,
         quantity: remaining,
@@ -135,6 +203,9 @@ Logger.info(
     `AutoFulfill: Fulfillment ${result.id} creado para Order ${order.code} — el vendedor lo transicionará a Shipped manualmente`,
     loggerCtx,
 );
+    } finally {
+        this.inFlightOrderIds.delete(orderIdStr);
+    }
     }
 }
 

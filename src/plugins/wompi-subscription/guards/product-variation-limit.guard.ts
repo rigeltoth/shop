@@ -23,7 +23,7 @@ export class ProductVariationLimitGuard extends FeatureGuard {
 
         const administratorId = await this.resolveAdministratorId(context);
         if (!administratorId) {
-            throw new ForbiddenException('Authentication required');
+            throw new ForbiddenException('Autenticación requerida');
         }
 
         await super.canActivate(context);
@@ -31,7 +31,7 @@ export class ProductVariationLimitGuard extends FeatureGuard {
         const { allowed, current, limit } = await this.featureCheckService.checkVariationLimit(administratorId);
         if (!allowed) {
             throw new ForbiddenException(
-                `Variation limit reached. You have ${current}/${limit} variations. Upgrade your plan to add more.`,
+                `Límite de variaciones alcanzado. Tienes ${current}/${limit} variaciones. Actualiza tu plan para añadir más.`,
             );
         }
 

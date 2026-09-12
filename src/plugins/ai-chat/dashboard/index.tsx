@@ -1,7 +1,8 @@
 import { defineDashboardExtension, DashboardRouteDefinition } from '@vendure/dashboard';
 import { AiChatPage } from './AiChatPage';
-import { AiChatWindow } from './AiChatWindow';
 import { AiChatFabTrigger } from './AiChatFabTrigger';
+import { HomeHeroWidget } from './HomeHeroWidget';
+import { showOnlyForSuperAdmin } from '../../superadminvisibility/dashboard/hooks';
 
 const aiChatRoute: DashboardRouteDefinition = {
     path: '/ai-chat',
@@ -19,18 +20,20 @@ export default defineDashboardExtension({
     routes: [aiChatRoute],
     widgets: [
         {
-            id: 'ai-chat-widget',
-            name: 'Asistente IA',
-            component: AiChatWindow,
-            defaultSize: { w: 6, h: 4, x: 6, y: 3 },
-            minSize: { w: 4, h: 3 },
-            maxSize: { w: 6, h: 6 },
+            id: 'ecommer-home-hero',
+            name: 'Bienvenida y acciones rápidas',
+            component: HomeHeroWidget,
+            defaultSize: { w: 12, h: 8, x: 0, y: 0 },
+            minSize: { w: 8, h: 4 },
+            maxSize: { w: 12, h: 12 },
+            shouldRender: showOnlyForSuperAdmin,
         },
     ],
     toolbarItems: [
         {
             id: 'ai-chat-trigger',
             component: AiChatFabTrigger,
+            shouldRender: showOnlyForSuperAdmin,
         },
     ],
 });

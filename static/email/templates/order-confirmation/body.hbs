@@ -37,4 +37,42 @@
   </mj-column>
 </mj-section>
 
+<mj-section padding="10px 20px">
+  <mj-column background-color="#ffffff" padding="20px" border-radius="12px">
+    <mj-text font-weight="bold" color="#12123F">Productos</mj-text>
+
+    <mj-table cellpadding="8px">
+      {{#each order.lines}}
+      <tr>
+        <td width="60" style="vertical-align: top;">
+          {{#if featuredAsset}}
+          <img alt="{{ productVariant.name }}"
+               src="{{ featuredAsset.preview }}?w=60&h=60"
+               style="width: 60px; height: 60px; border-radius: 8px; object-fit: cover;" />
+          {{/if}}
+        </td>
+        <td style="vertical-align: top;">
+          <strong>{{ productVariant.name }}</strong>
+          {{#if productVariant.product.description}}
+          <br/><span style="color: #555555;">{{{ productVariant.product.description }}}</span>
+          {{/if}}
+        </td>
+      </tr>
+      {{/each}}
+    </mj-table>
+  </mj-column>
+</mj-section>
+
+<mj-section padding="10px 20px">
+  <mj-column background-color="#ffffff" padding="20px" border-radius="12px">
+    <mj-button href="{{ orderTrackingUrl }}"
+               background-color="#12123F"
+               color="#ffffff"
+               border-radius="8px"
+               font-size="15px">
+      Ver estado de mi pedido
+    </mj-button>
+  </mj-column>
+</mj-section>
+
 {{> footer }}

@@ -86,6 +86,7 @@ type GlobalPool = {
 };
 
 export function MatiasStoresPage() {
+    const [storeFilter, setStoreFilter] = useState('');
     const { data, isLoading, error, refetch } = useQuery({
         queryKey: ['matias-billing-stores'],
         queryFn: async () => {
@@ -101,6 +102,15 @@ export function MatiasStoresPage() {
     });
 
     const rows = data?.matiasBillingStores ?? [];
+    const filteredRows = useMemo(() => {
+        const q = storeFilter.trim().toLowerCase();
+        if (!q) return rows;
+        return rows.filter((row) => {
+            const code = row.channelCode.toLowerCase();
+            const seller = (row.sellerName ?? '').toLowerCase();
+            return code.includes(q) || seller.includes(q);
+        });
+    }, [rows, storeFilter]);
     const pool = data?.matiasGlobalInvoicePool;
     const errMsg = error ? error.message : null;
 
@@ -124,17 +134,37 @@ export function MatiasStoresPage() {
 
                 <PageBlock column="main" blockId="stores">
                     <Card>
-                        <CardHeader className="flex flex-row items-center justify-between gap-4">
-                            <div>
-                                <CardTitle>Tiendas vendedoras</CardTitle>
-                                <CardDescription>
-                                    Sin Company ID, prefijo y resolución no se puede emitir.
-                                </CardDescription>
+                        <CardHeader className="space-y-4">
+                            <div className="flex flex-row items-start justify-between gap-4">
+                                <div>
+                                    <CardTitle>Tiendas vendedoras</CardTitle>
+                                    <CardDescription>
+                                        Sin Company ID, prefijo y resolución no se puede emitir. Usa el buscador
+                                        para encontrar una tienda por código o nombre.
+                                    </CardDescription>
+                                </div>
+                                <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+                                    <RefreshCw className="h-4 w-4 mr-1" />
+                                    Actualizar
+                                </Button>
                             </div>
-                            <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
-                                <RefreshCw className="h-4 w-4 mr-1" />
-                                Actualizar
-                            </Button>
+                            <div className="space-y-1.5 max-w-xl">
+                                <Label htmlFor="matias-store-search">Buscar tienda</Label>
+                                <Input
+                                    id="matias-store-search"
+                                    type="search"
+                                    placeholder="Escribe el nombre o código (ej. tienda-mary, Lucy…)"
+                                    value={storeFilter}
+                                    onChange={(e) => setStoreFilter(e.target.value)}
+                                />
+                                {!isLoading && !errMsg && rows.length > 0 ? (
+                                    <p className="text-xs text-muted-foreground">
+                                        {filteredRows.length === rows.length
+                                            ? `${rows.length} tienda${rows.length === 1 ? '' : 's'}`
+                                            : `${filteredRows.length} de ${rows.length} tiendas`}
+                                    </p>
+                                ) : null}
+                            </div>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {isLoading ? (
@@ -143,8 +173,12 @@ export function MatiasStoresPage() {
                                 <p className="text-sm text-destructive">{errMsg}</p>
                             ) : rows.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">No hay canales con vendedor.</p>
+                            ) : filteredRows.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                    Ninguna tienda coincide con «{storeFilter.trim()}».
+                                </p>
                             ) : (
-                                rows.map((row) => (
+                                filteredRows.map((row) => (
                                     <StoreEditorRow key={row.channelId} row={row} onSaved={() => void refetch()} />
                                 ))
                             )}

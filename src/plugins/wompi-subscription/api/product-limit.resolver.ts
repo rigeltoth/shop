@@ -1,5 +1,5 @@
 import { Args, Mutation, Resolver } from '@nestjs/graphql';
-import { Ctx, ProductService, ProductVariantService, RequestContext, UserInputError } from '@vendure/core';
+import { Ctx, ProductService, ProductVariantService, RequestContext, Transaction, UserInputError } from '@vendure/core';
 import { UseGuards } from '@nestjs/common';
 import { ProductLimitGuard, ProductVariationLimitGuard } from '../guards';
 
@@ -10,6 +10,7 @@ export class ProductLimitResolver {
         private productVariantService: ProductVariantService,
     ) {}
 
+    @Transaction()
     @Mutation()
     @UseGuards(ProductLimitGuard)
     async createProduct(@Ctx() ctx: RequestContext, @Args() args: any) {
@@ -19,6 +20,7 @@ export class ProductLimitResolver {
         return this.productService.create(ctx, args.input);
     }
 
+    @Transaction()
     @Mutation()
     @UseGuards(ProductVariationLimitGuard)
     async createProductVariants(@Ctx() ctx: RequestContext, @Args() args: any) {

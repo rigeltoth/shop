@@ -7,6 +7,7 @@ import {
     Logger,
 } from '@vendure/core';
 import { SellerOnboardingService } from '../services/seller-onboarding.service';
+import { SellerVerificationService } from '../services/seller-verification.service';
 import { CUSTOMER_ROLE_CODE } from '@vendure/common/lib/shared-constants';
 import { DocumentNode } from 'graphql';
 import gql from 'graphql-tag';
@@ -32,6 +33,7 @@ export class GoogleAdminAuthenticationStrategy
     private client: OAuth2Client;
     private connection!: TransactionalConnection;
     private sellerOnboardingService!: SellerOnboardingService;
+    private sellerVerificationService!: SellerVerificationService;
     constructor(private clientId: string) {
         this.client = new OAuth2Client(clientId);
     }
@@ -47,6 +49,7 @@ export class GoogleAdminAuthenticationStrategy
     init(injector: Injector) {
         this.connection = injector.get(TransactionalConnection);
         this.sellerOnboardingService = injector.get(SellerOnboardingService);
+        this.sellerVerificationService = injector.get(SellerVerificationService);
     }
 
     // Extrae el email del token de Google, Primero intenta como ID token
@@ -145,7 +148,23 @@ export class GoogleAdminAuthenticationStrategy
             const isSeller = user.roles?.some(r => r.code.includes('-admin'));
             if (isSeller) {
                 try {
+                    // Google ya verificó el correo: si el seller estaba pendiente
+                    // (registro con formulario tradicional), se auto-verifica.
+                    if (!user.verified) {
+                        await this.sellerVerificationService.autoVerifyForUser(user);
+                        user.verified = true;
+                    }
                     await this.sellerOnboardingService.syncAllSellerRolesForUser(ctx, user);
+                    const freshUser = await this.connection
+                        .getRepository(ctx, User)
+                        .createQueryBuilder('user')
+                        .leftJoinAndSelect('user.roles', 'role')
+                        .leftJoinAndSelect('role.channels', 'channel')
+                        .where('user.id = :id', { id: user.id })
+                        .getOne();
+                    if (freshUser) {
+                        (user as any).roles = freshUser.roles;
+                    }
                 } catch (syncError) {
                     Logger.error(
                         `Failed to sync seller roles for ${email}: ${syncError instanceof Error ? syncError.message : syncError}`,

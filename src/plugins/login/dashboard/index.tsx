@@ -1,19 +1,30 @@
 import { defineDashboardExtension } from '@vendure/dashboard';
-import { App } from './App';
+import { LoginMarketingPage } from './marketing/LoginMarketingPage';
 import { LoginLogo } from './components/LoginLogo';
 import { DeleteAccountSection } from './components/DeleteAccountSection';
+import VerifySellerEmailPage from './components/VerifySellerEmailPage';
 import { SocialLinksSection } from '../../store-page/dashboard/social-links-section';
+import { SubscriptionAlertSection } from '../../wompi-subscription/dashboard/subscription-alert';
 
 defineDashboardExtension({
     routes: [{
         path: '/login-custom',
         authenticated: false,
         component: () => {
-            return <App />;
+            return <LoginMarketingPage />;
+        }
+    }, {
+        path: '/verify-email',
+        authenticated: false,
+        component: () => {
+            return <VerifySellerEmailPage />;
         }
     }],
 
-    // Inject into the default `/login` page
+    // Inject into the default `/login` page. LoginMarketingPage renders a
+    // fixed full-viewport overlay (see its own docblock for why not a portal),
+    // so it fully replaces what's rendered by the logo/beforeForm slots below —
+    // they're kept only as a non-flashing fallback for the initial paint.
     login: {
         logo: {
             component: LoginLogo,
@@ -28,12 +39,21 @@ defineDashboardExtension({
         },
         afterForm: {
             component: () => {
-                return <App />;
+                return <LoginMarketingPage />;
             },
         },
     },
 
     pageBlocks: [
+        {
+            id: 'subscription-alert-section',
+            location: {
+                pageId: 'profile',
+                column: 'main',
+                position: { blockId: 'custom-fields', order: 'before' },
+            },
+            component: SubscriptionAlertSection,
+        },
         {
             id: 'social-links-section',
             location: {

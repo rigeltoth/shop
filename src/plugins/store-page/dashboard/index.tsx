@@ -78,6 +78,10 @@ import type { PageContextValue } from '@vendure/dashboard';
 function ShareProductDropdownItem({ context }: { context: PageContextValue }) {
     const { activeChannel } = useChannel();
 
+    if (!context?.entity) {
+        return null;
+    }
+
     const handleCopy = async () => {
         try {
             const slug = (context?.entity as any)?.slug;

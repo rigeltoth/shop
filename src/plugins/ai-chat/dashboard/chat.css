@@ -309,3 +309,92 @@
 .ac-message-bubble a:hover {
     text-decoration: underline;
 }
+
+/* BOTÓN CERRAR (header del chat) */
+.ac-chat-close {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--chat-text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+
+.ac-chat-close:hover {
+    background: var(--chat-surface-2);
+    color: var(--chat-text-primary);
+}
+
+/* --- CHAT ACOPLADO (desktop/md+) --- */
+/* Empuja el contenido hacia la izquierda para hacer espacio al panel */
+main[data-slot="sidebar-inset"].ecommer-chat-open > .container {
+    width: auto;
+    margin-left: 0;
+    margin-right: var(--chat-dock-width, 400px);
+    transition: margin-right 0.15s ease;
+}
+
+/* Header rompe el contenedor y mantiene su ancho completo */
+main[data-slot="sidebar-inset"].ecommer-chat-open > .container > header {
+    width: calc(100% + var(--chat-dock-width, 400px));
+}
+
+/* Panel acoplado: fijo a la derecha, altura completa, ancho dinámico */
+main[data-slot="sidebar-inset"] > [data-ai-chat-dock] {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: var(--chat-dock-width, 400px);
+    height: 100vh;
+    height: 100dvh;
+    z-index: 60;
+    background: var(--chat-bg, var(--background));
+    border-left: 1px solid var(--chat-border, var(--border));
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+}
+
+main[data-slot="sidebar-inset"] > [data-ai-chat-dock] .ac-chat-window {
+    border: none;
+    border-radius: 0;
+    height: 100%;
+}
+
+/* --- RESIZE HANDLE --- */
+.ac-chat-resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.15s, opacity 0.15s;
+    z-index: 10;
+    opacity: 0;
+}
+
+.ac-chat-resize-handle:hover,
+.ac-chat-resize-handle:active {
+    opacity: 1;
+    background: var(--chat-accent, #6BB8FF);
+}
+
+/* --- CHAT PANTALLA COMPLETA (móvil) --- */
+.ecommer-chat-sheet {
+    overflow: hidden;
+    width: 100vw !important;
+    max-width: 100vw !important;
+}
+
+.ecommer-chat-sheet .ac-chat-window {
+    border: none;
+    border-radius: 0;
+    height: 100%;
+}

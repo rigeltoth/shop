@@ -10,6 +10,9 @@ const ADMINISTRATOR_SQL = [
     `ALTER TABLE public."administrator" ADD COLUMN IF NOT EXISTS "customFieldsStorebannerurlid" integer`,
     `ALTER TABLE public."administrator" DROP CONSTRAINT IF EXISTS "FK_administrator_customFieldsStorebannerurlid"`,
     `ALTER TABLE public."administrator" ADD CONSTRAINT "FK_administrator_customFieldsStorebannerurlid" FOREIGN KEY ("customFieldsStorebannerurlid") REFERENCES public."asset"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
+    `ALTER TABLE public."administrator" ADD COLUMN IF NOT EXISTS "customFieldsStorepickuppostalcode" character varying`,
+    `ALTER TABLE public."administrator" ADD COLUMN IF NOT EXISTS "customFieldsPickuptimefrom" integer`,
+    `ALTER TABLE public."administrator" ADD COLUMN IF NOT EXISTS "customFieldsPickuptimeto" integer`,
 ];
 
 const CHANNEL_SQL = [
@@ -49,6 +52,7 @@ const ADDRESS_SQL = [
 
 const ORDER_SQL = [
     `ALTER TABLE public."order" ADD COLUMN IF NOT EXISTS "customFieldsInvoicelasterror" text`,
+    `ALTER TABLE public."order" ADD COLUMN IF NOT EXISTS "customFieldsInvoicelastfailedat" TIMESTAMP`,
 ];
 
 async function columnExists(client, table, column) {
@@ -90,21 +94,29 @@ for (const [name, statements] of sections) {
 const checks = [
     ['administrator', 'customFieldsStoreheaderbannerurlid'],
     ['administrator', 'customFieldsStorebannerurlid'],
+    ['administrator', 'customFieldsPickuptimefrom'],
     ['channel', 'customFieldsInvoicebillingactive'],
     ['customer', 'customFieldsDni'],
     ['address', 'customFieldsDni'],
+    ['order', 'customFieldsInvoicelastfailedat'],
 ];
+
+const COLUMN_TYPES = {
+    customFieldsInvoicebillingactive: 'boolean NOT NULL DEFAULT false',
+    customFieldsPickuptimefrom: 'integer',
+    customFieldsPickuptimeto: 'integer',
+    customFieldsInvoicelastfailedat: 'TIMESTAMP',
+    customFieldsStoreheaderbannerurlid: 'integer',
+    customFieldsStorebannerurlid: 'integer',
+};
 
 for (const [table, column] of checks) {
     let ok = await columnExists(client, table, column);
     if (!ok) {
         // Reintento explícito por si el lote anterior no aplicó ese ALTER.
+        const columnType = COLUMN_TYPES[column] ?? 'character varying';
         await client.query(
-            `ALTER TABLE public."${table}" ADD COLUMN IF NOT EXISTS "${column}" ${
-                column === 'customFieldsInvoicebillingactive'
-                    ? 'boolean NOT NULL DEFAULT false'
-                    : 'character varying'
-            }`,
+            `ALTER TABLE public."${table}" ADD COLUMN IF NOT EXISTS "${column}" ${columnType}`,
         );
         ok = await columnExists(client, table, column);
     }

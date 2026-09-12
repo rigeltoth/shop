@@ -96,6 +96,38 @@ export function humanizeInvoiceEmissionError(raw: string): string {
       : 'Faltan datos obligatorios para emitir la factura (cliente, resolución, prefijo, etc.).';
   }
 
+  if (/property ["']?image["']? on null|InvoiceReports\.php/i.test(text)) {
+    return (
+      'Matias no pudo generar el PDF de la factura: falta el logo (image) de la empresa en Matias. ' +
+      'En el panel sandbox de Matias, abre esa compañía (Company ID / client_uuid) y sube el logo de la empresa; ' +
+      'luego vuelve a emitir. Si ya tiene logo, contacta soporte Matias (error en InvoiceReports.php).'
+    );
+  }
+
+  if (/ya se encuentra validado/i.test(text)) {
+    return (
+      'Matias indica que ese consecutivo de factura ya fue validado (p. ej. FEV1). ' +
+      'Suele pasar si un intento anterior llegó a DIAN pero falló el PDF/logo. ' +
+      'El sistema reintenta con el siguiente número automáticamente; si persiste, en Matias ' +
+      'avanza el «siguiente consecutivo» de la resolución FEV o contacta soporte Matias.'
+    );
+  }
+
+  if (/resoluci[oó]n de facturaci[oó]n activa/i.test(text)) {
+    return (
+      'Matias no encontró una resolución DIAN activa para el prefijo y número configurados en «Matias por tienda». ' +
+      'Revisa en el panel sandbox de Matias que la resolución esté vigente para la fecha de hoy, que el prefijo (ej. FEV) ' +
+      'y el número de resolución coincidan exactamente con los de esa compañía (Company ID), y que no haya vencido ' +
+      '(en sandbox las resoluciones de prueba suelen tener vigencia corta).'
+    );
+  }
+
+  if (/fecha\s*\([^)]+\)\s*del documento debe estar entre/i.test(text)) {
+    return (
+      'Matias rechazó la factura porque la fecha del documento no coincide con el día de emisión en Colombia. '
+    );
+  }
+
   let cleaned = text
     .replace(/^Failed to create invoice in Matias:\s*/i, 'Matias rechazó la factura: ')
     .replace(/^Failed to create invoice:\s*/i, 'No se pudo crear la factura: ')

@@ -101,7 +101,6 @@ export class FeatureCheckService {
             .innerJoin('product.channels', 'channel')
             .where('channel.id = :channelId', { channelId: channel.id })
             .andWhere('product.deletedAt IS NULL')
-            .andWhere('product."customFieldsHidden" IS DISTINCT FROM true')
             .getCount();
 
         return {
@@ -135,7 +134,6 @@ export class FeatureCheckService {
             .andWhere('product.deletedAt IS NULL')
             .andWhere('variant.deletedAt IS NULL')
             .andWhere('variant.enabled = :enabled', { enabled: true })
-            .andWhere('variant."customFieldsHidden" IS DISTINCT FROM true')
             .getCount();
 
         return {

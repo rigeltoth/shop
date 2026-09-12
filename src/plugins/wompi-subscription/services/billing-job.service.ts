@@ -2,11 +2,9 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { SubscriptionQueryService } from './subscription-query.service';
 import { SubscriptionLifecycleService } from './subscription-lifecycle.service';
 import { FeatureCheckService } from './feature-check.service';
-import { ProductLimitEnforcementService } from './product-limit-enforcement.service';
 import { WompiService } from './wompi.service';
 import { BillingEmailService } from './billing-email.service';
 import { SubscriptionStatus } from '../entities/customer-subscription.entity';
-import { FEATURE_CODES } from '../constants';
 import { JobQueue, JobQueueService, ProcessContext } from '@vendure/core';
 
 @Injectable()
@@ -18,7 +16,6 @@ export class BillingJobService implements OnModuleInit {
         private subscriptionQueryService: SubscriptionQueryService,
         private lifecycleService: SubscriptionLifecycleService,
         private featureCheckService: FeatureCheckService,
-        private limitEnforcementService: ProductLimitEnforcementService,
         private wompiService: WompiService,
         private billingEmailService: BillingEmailService,
         private jobQueueService: JobQueueService,
@@ -186,13 +183,6 @@ export class BillingJobService implements OnModuleInit {
 
         for (const subscription of subscriptions) {
             try {
-                const productLimitValue = await this.featureCheckService.getFeatureValue(
-                    subscription.administratorId,
-                    FEATURE_CODES.MAX_PRODUCTS,
-                );
-                const productLimit = productLimitValue ? parseInt(productLimitValue, 10) : 15;
-
-                await this.limitEnforcementService.hideExcessProducts(subscription.administratorId, productLimit);
                 await this.lifecycleService.downgradeToFree(subscription.id);
 
                 this.logger.log(`Downgraded subscription ${subscription.id} to Free plan`);

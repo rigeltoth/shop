@@ -1,10 +1,6 @@
 import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Allow, Ctx, Permission, RequestContext } from '@vendure/core';
-import { UseGuards } from '@nestjs/common';
 import { Request } from 'express';
-import { FeatureAccessGuard } from '../../wompi-subscription/guards';
-import { RequiresFeature } from '../../wompi-subscription/decorators/requires-feature.decorator';
-import { FEATURE_CODES } from '../../wompi-subscription/constants';
 import { InvoiceQueryService } from '../services/invoice-query.service';
 import { MatiasBillingStoresService } from '../services/matias-billing-stores.service';
 import { MatiasGlobalPoolService } from '../services/matias-global-pool.service';
@@ -35,8 +31,6 @@ export class InvoiceAdminResolver {
 
   @Query()
   @Allow(Permission.ReadOrder)
-  @UseGuards(FeatureAccessGuard)
-  @RequiresFeature(FEATURE_CODES.ELECTRONIC_BILLING)
   async invoices(
     @Ctx() ctx: RequestContext,
     @Args('options') options?: {
@@ -75,8 +69,6 @@ export class InvoiceAdminResolver {
 
   @Query()
   @Allow(Permission.ReadOrder)
-  @UseGuards(FeatureAccessGuard)
-  @RequiresFeature(FEATURE_CODES.ELECTRONIC_BILLING)
   async invoiceTotalsByDay(
     @Ctx() ctx: RequestContext,
     @Args('dateFrom') dateFrom: string,
@@ -87,8 +79,6 @@ export class InvoiceAdminResolver {
 
   @Query()
   @Allow(Permission.ReadOrder)
-  @UseGuards(FeatureAccessGuard)
-  @RequiresFeature(FEATURE_CODES.ELECTRONIC_BILLING)
   async invoiceTotalsByMonth(
     @Ctx() ctx: RequestContext,
     @Args('dateFrom') dateFrom: string,

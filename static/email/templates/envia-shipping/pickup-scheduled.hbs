@@ -1,0 +1,32 @@
+{{> header title="Recolección agendada - Envia" }}
+
+<mj-section padding="20px">
+  <mj-column background-color="#ffffff" padding="30px" border-radius="12px">
+
+    <mj-text font-size="20px" font-weight="bold" color="#12123F">
+      Tu envío está listo
+    </mj-text>
+
+    <mj-text>
+      La guía <strong>{{trackingCode}}</strong> fue generada y la recolección fue agendada automáticamente.
+    </mj-text>
+
+    <mj-text>
+      <strong>Fecha de recolección:</strong> {{pickupDate}}
+    </mj-text>
+
+    <mj-text>
+      <strong>Horario:</strong> {{pickupTimeFrom}}:00 - {{pickupTimeTo}}:00
+    </mj-text>
+
+    <mj-divider border-width="1px" border-color="#E5E7EB" />
+
+    <mj-text>
+      Asegúrate de tener el paquete listo, bien empacado y con la guía impresa antes de la hora indicada.
+      El transportador pasará por la dirección registrada en tu tienda.
+    </mj-text>
+
+  </mj-column>
+</mj-section>
+
+{{> footer }}

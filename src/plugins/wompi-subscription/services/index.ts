@@ -4,6 +4,5 @@ export * from './subscription-query.service';
 export * from './subscription-write.service';
 export * from './subscription-lifecycle.service';
 export * from './feature-check.service';
-export * from './product-limit-enforcement.service';
 export * from './billing-job.service';
 export * from './billing-email.service';
