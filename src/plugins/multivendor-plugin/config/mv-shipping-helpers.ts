@@ -29,7 +29,9 @@ export async function resolveSellerOriginIsPopayan(
             .where('channel.id = :channelId', { channelId: sellerChannelId })
             .getOne();
 
-        const address: string | undefined = (admin as any)?.customFields?.storePickupAddress;
+        const address: string | undefined =
+            (admin as any)?.customFields?.storePickupAddress ??
+            (admin as any)?.customFieldsStorepickupaddress;
 
         if (!address) {
             return true;

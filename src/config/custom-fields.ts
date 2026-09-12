@@ -914,6 +914,18 @@ export const customFields: VendureConfig['customFields'] = {
         },
       ],
     },
+    {
+      name: 'invoiceLastFailedAt',
+      type: 'datetime',
+      nullable: true,
+      public: false,
+      description: [
+        {
+          languageCode: LanguageCode.es,
+          value: 'Fecha/hora (UTC) del último fallo al emitir factura electrónica',
+        },
+      ],
+    },
   ],
   PaymentMethod: [
     {

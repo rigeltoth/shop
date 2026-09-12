@@ -3,7 +3,8 @@ import {
     shippingLinesWithMethod,
     transformOrderLineAssetUrls,
 } from '@vendure/email-plugin';
-import { EntityHydrator, OrderStateTransitionEvent } from '@vendure/core';
+import { EntityHydrator, OrderStateTransitionEvent, translateDeep } from '@vendure/core';
+import { storeUrl } from '../environment';
 
 /**
  * Custom order-confirmation handler.
@@ -27,7 +28,12 @@ export const orderConfirmationHandler = new EmailEventListener('order-confirmati
     .loadData(async ({ event, injector }) => {
         const entityHydrator = injector.get(EntityHydrator);
         await entityHydrator.hydrate(event.ctx, event.order, {
-            relations: ['lines.featuredAsset', 'shippingLines.shippingMethod'],
+            relations: ['lines.featuredAsset', 'lines.productVariant.product', 'lines.productVariant.product.translations', 'shippingLines.shippingMethod'],
+        });
+        event.order.lines.forEach(line => {
+            if (line.productVariant?.product) {
+                line.productVariant.product = translateDeep(line.productVariant.product, event.ctx.languageCode);
+            }
         });
         transformOrderLineAssetUrls(event.ctx, event.order, injector);
         const shippingLines = shippingLinesWithMethod(event.order);
@@ -39,4 +45,5 @@ export const orderConfirmationHandler = new EmailEventListener('order-confirmati
     .setTemplateVars(event => ({
         order: event.order,
         shippingLines: event.data.shippingLines,
+        orderTrackingUrl: `${storeUrl}/es/account/orders/${event.order.code}`,
     }));
